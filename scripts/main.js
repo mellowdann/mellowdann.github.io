@@ -33,13 +33,26 @@ grid.forEach(hex => {
 })
 
 var clicked = false
+var type = 'none'
 
 document.addEventListener('mousedown', ({ offsetX, offsetY }) => {
     clicked = true
+    const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
+    hex = grid.get(hexCoordinates)
+    const { x, y } = hex.toPoint()
+    if(hex.custom == 'wall'){
+        type = 'empty'
+        draw.use(hexEmpty).translate(x, y)
+    }else if(hex.custom == 'empty'){
+        type = 'wall'
+        draw.use(hexWall).translate(x, y)
+    }
+    console.log("Mousedown", hex)
 })
 
 document.addEventListener('mouseup', ({ offsetX, offsetY }) => {
     clicked = false
+    type = 'none'
 })
 
 document.addEventListener('mouseover', ({ offsetX, offsetY }) => {
@@ -49,10 +62,10 @@ document.addEventListener('mouseover', ({ offsetX, offsetY }) => {
         // get the actual hex from the grid
         hex = grid.get(hexCoordinates)
         const { x, y } = hex.toPoint()
-        if(hex.custom == 'empty'){
+        if(type == 'wall'){
             hex.custom = 'wall'
             draw.use(hexWall).translate(x, y)
-        } else if(hex.custom == 'wall'){
+        }else if(type == 'empty'){
             hex.custom = 'empty'
             draw.use(hexEmpty).translate(x, y)
         }
