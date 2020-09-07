@@ -17,6 +17,16 @@ const hexWall = draw.symbol()
     .polygon(corners.map(({ x, y }) => `${x},${y}`))
     .fill('black')
     .stroke({ width: 1, color: '#999' })
+const hexStart = draw.symbol()
+    // map the corners' positions to a string and create a polygon
+    .polygon(corners.map(({ x, y }) => `${x},${y}`))
+    .fill('blue')
+    .stroke({ width: 1, color: '#999' })
+const hexEnd = draw.symbol()
+    // map the corners' positions to a string and create a polygon
+    .polygon(corners.map(({ x, y }) => `${x},${y}`))
+    .fill('green')
+    .stroke({ width: 1, color: '#999' })
 
 // render 10,000 hexes
 grid = Grid.rectangle({ width: 50, height: 50 })
@@ -24,53 +34,86 @@ grid = Grid.rectangle({ width: 50, height: 50 })
 grid.forEach(hex => {
     const { x, y } = hex.toPoint()
     // use hexSymbol and set its position for each hex
-    if(hex.custom == 'empty'){
-        draw.use(hexEmpty).translate(x, y)
-    } else if(hex.custom == 'wall'){
-        draw.use(hexWall).translate(x, y)
-    }
-    
+    draw.use(hexEmpty).translate(x, y)
 })
 
-var clicked = false
+//Start and End Hexes
+hex = grid.get([3,45])
+hex.custom = 'start'
+var { x, y } = hex.toPoint()
+draw.use(hexStart).translate(x, y)
+hex = grid.get([45,3])
+hex.custom = 'end'
+var { x, y } = hex.toPoint()
+draw.use(hexEnd).translate(x, y)
+
+var mousedown = false
 var type = 'none'
 
+
 document.addEventListener('mousedown', ({ offsetX, offsetY }) => {
-    clicked = true
+    mousedown = true
     const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
-    hex = grid.get(hexCoordinates)
-    const { x, y } = hex.toPoint()
-    if(hex.custom == 'wall'){
+    mousedown_hex = grid.get(hexCoordinates)
+    const { x, y } = mousedown_hex.toPoint()
+    if(mousedown_hex.custom == 'wall'){
         type = 'empty'
         draw.use(hexEmpty).translate(x, y)
-    }else if(hex.custom == 'empty'){
+    }else if(mousedown_hex.custom == 'empty'){
         type = 'wall'
         draw.use(hexWall).translate(x, y)
+    }else if(mousedown_hex.custom == 'start'){
+        type = 'start'
+    }else if(mousedown_hex.custom == 'end'){
+        type = 'end'
     }
-    console.log("Mousedown", hex)
+    console.log("Mousedown", hexCoordinates)
 })
 
 document.addEventListener('mouseup', ({ offsetX, offsetY }) => {
-    clicked = false
+    mousedown = false
     type = 'none'
+    mousedown_hex = null
 })
 
 document.addEventListener('mouseover', ({ offsetX, offsetY }) => {
-    if(clicked){
+    if(mousedown){
         // convert point to hex (coordinates)
         const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
         // get the actual hex from the grid
         hex = grid.get(hexCoordinates)
-        const { x, y } = hex.toPoint()
-        if(type == 'wall'){
-            hex.custom = 'wall'
-            draw.use(hexWall).translate(x, y)
-        }else if(type == 'empty'){
-            hex.custom = 'empty'
-            draw.use(hexEmpty).translate(x, y)
+        if(hex != mousedown_hex){
+            var { x, y } = hex.toPoint()
+            if(type == 'wall'){
+                hex.custom = 'wall'
+                draw.use(hexWall).translate(x, y)
+            }else if(type == 'empty'){
+                hex.custom = 'empty'
+                draw.use(hexEmpty).translate(x, y)
+            }else if(type == 'start'){
+                //new start
+                hex.custom = 'start'
+                draw.use(hexStart).translate(x, y)
+                //remove old start
+                var { x, y } = mousedown_hex.toPoint()
+                mousedown_hex.custom = 'empty'
+                draw.use(hexEmpty).translate(x, y)
+                //set old = new
+                mousedown_hex = hex
+            }else if(type == 'end'){
+                //new end
+                hex.custom = 'end'
+                draw.use(hexEnd).translate(x, y)
+                //remove old end
+                var { x, y } = mousedown_hex.toPoint()
+                mousedown_hex.custom = 'empty'
+                draw.use(hexEmpty).translate(x, y)
+                //set old = new
+                mousedown_hex = hex
+            }
+            
+            console.log(hex)
         }
-        
-        console.log(hex)
     }
 })
 
