@@ -2,7 +2,9 @@ const draw = SVG().addTo('body').size('100%', '100%')
 
 const Hex = Honeycomb.extendHex({ 
     size: 10,
-    custom: 'empty' })
+    custom: 'empty',
+    start: false,
+    end: false })
 const Grid = Honeycomb.defineGrid(Hex)
 // get the corners of a hex (they're the same for all hexes created with the same Hex factory)
 corners = Hex().corners()
@@ -38,13 +40,13 @@ grid.forEach(hex => {
 })
 
 //Start and End Hexes
-hex = grid.get([3,45])
-hex.custom = 'start'
-var { x, y } = hex.toPoint()
+hex_start = grid.get([3,45])
+hex_end = grid.get([45,3])
+hex_start.start = true
+hex_end.end = true
+var { x, y } = hex_start.toPoint()
 draw.use(hexStart).translate(x, y)
-hex = grid.get([45,3])
-hex.custom = 'end'
-var { x, y } = hex.toPoint()
+var { x, y } = hex_end.toPoint()
 draw.use(hexEnd).translate(x, y)
 
 var mousedown = false
@@ -55,17 +57,18 @@ document.addEventListener('mousedown', ({ offsetX, offsetY }) => {
     mousedown = true
     const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
     mousedown_hex = grid.get(hexCoordinates)
-    const { x, y } = mousedown_hex.toPoint()
-    if(mousedown_hex.custom == 'wall'){
+    if(mousedown_hex.start){
+        type = 'start'
+    }else if(mousedown_hex.end){
+        type = 'end'
+    }else if(mousedown_hex.custom == 'wall'){
         type = 'empty'
-        draw.use(hexEmpty).translate(x, y)
+        mousedown_hex.custom = 'empty'
+        drawHex(mousedown_hex)
     }else if(mousedown_hex.custom == 'empty'){
         type = 'wall'
-        draw.use(hexWall).translate(x, y)
-    }else if(mousedown_hex.custom == 'start'){
-        type = 'start'
-    }else if(mousedown_hex.custom == 'end'){
-        type = 'end'
+        mousedown_hex.custom = 'wall'
+        drawHex(mousedown_hex)
     }
     console.log("Mousedown", hexCoordinates)
 })
@@ -86,37 +89,45 @@ document.addEventListener('mouseover', ({ offsetX, offsetY }) => {
             var { x, y } = hex.toPoint()
             if(type == 'wall'){
                 hex.custom = 'wall'
-                draw.use(hexWall).translate(x, y)
+                drawHex(hex)
             }else if(type == 'empty'){
                 hex.custom = 'empty'
-                draw.use(hexEmpty).translate(x, y)
+                drawHex(hex)
             }else if(type == 'start'){
                 //new start
-                hex.custom = 'start'
-                draw.use(hexStart).translate(x, y)
+                hex.start = true
+                drawHex(hex)
                 //remove old start
-                var { x, y } = mousedown_hex.toPoint()
-                mousedown_hex.custom = 'empty'
-                draw.use(hexEmpty).translate(x, y)
+                mousedown_hex.start = false
+                drawHex(mousedown_hex)
                 //set old = new
                 mousedown_hex = hex
             }else if(type == 'end'){
-                //new end
-                hex.custom = 'end'
-                draw.use(hexEnd).translate(x, y)
-                //remove old end
-                var { x, y } = mousedown_hex.toPoint()
-                mousedown_hex.custom = 'empty'
-                draw.use(hexEmpty).translate(x, y)
+                //new start
+                hex.end = true
+                drawHex(hex)
+                //remove old start
+                mousedown_hex.end = false
+                drawHex(mousedown_hex)
                 //set old = new
                 mousedown_hex = hex
             }
-            
             console.log(hex)
         }
     }
 })
 
-
+function drawHex(hex){
+    const { x, y } = hex.toPoint()
+    if(hex.start){
+        draw.use(hexStart).translate(x, y)
+    }else if(hex.end){
+        draw.use(hexEnd).translate(x, y)
+    }else if(hex.custom == 'wall'){
+        draw.use(hexWall).translate(x, y)
+    }else if(hex.custom == 'empty'){
+        draw.use(hexEmpty).translate(x, y)
+    }
+}
 
 
