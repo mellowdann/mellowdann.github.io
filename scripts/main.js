@@ -4,36 +4,36 @@ const Hex = Honeycomb.extendHex({
     size: 10,
     custom: 'empty',
     start: false,
-    end: false
+    end: false,
+    level: 0
 })
 const Grid = Honeycomb.defineGrid(Hex)
 // get the corners of a hex (they're the same for all hexes created with the same Hex factory)
 corners = Hex().corners()
 // an SVG symbol can be reused
 const hexEmpty = draw.symbol()
-    // map the corners' positions to a string and create a polygon
     .polygon(corners.map(({ x, y }) => `${x},${y}`))
     .fill('white')
     .stroke({ width: 1, color: '#999' })
 const hexWall = draw.symbol()
-    // map the corners' positions to a string and create a polygon
     .polygon(corners.map(({ x, y }) => `${x},${y}`))
     .fill('black')
     .stroke({ width: 1, color: '#999' })
 const hexStart = draw.symbol()
-    // map the corners' positions to a string and create a polygon
     .polygon(corners.map(({ x, y }) => `${x},${y}`))
     .fill('blue')
     .stroke({ width: 1, color: '#999' })
 const hexEnd = draw.symbol()
-    // map the corners' positions to a string and create a polygon
     .polygon(corners.map(({ x, y }) => `${x},${y}`))
     .fill('green')
     .stroke({ width: 1, color: '#999' })
 const hexSearched = draw.symbol()
-    // map the corners' positions to a string and create a polygon
     .polygon(corners.map(({ x, y }) => `${x},${y}`))
     .fill('purple')
+    .stroke({ width: 1, color: '#999' })
+const hexPath = draw.symbol()
+    .polygon(corners.map(({ x, y }) => `${x},${y}`))
+    .fill('yellow')
     .stroke({ width: 1, color: '#999' })
 
 // render 10,000 hexes
@@ -58,40 +58,85 @@ draw.use(hexEnd).translate(x, y)
 var mousedown = false
 var type = 'none'
 var neighbours = []
+var level = 0
 
 document.getElementById("btnSearch").addEventListener("click", function () {
+    //Start at hex_start and search for hex_end
     neighbours = [hex_start]
+    level++
     window.requestAnimationFrame(searchNeighbours)
 });
 
 var searchNeighbours = function () {
     var n = []
-    var undefined = []
     var found = false
+    //Get all neighbours
     for (var i = 0; i < neighbours.length; i++) {
         n = n.concat(grid.neighborsOf(neighbours[i]))
     }
-    for (var i = 0; i < n.length; i++) {
-        if (typeof n[i] !== 'undefined') {
-            if (n[i].end) {
-                found = true
-            } else if (n[i].custom == 'empty') {
-                n[i].custom = 'searched'
-                drawHex(n[i])
-            } else {
-                undefined.push(i)
-            }
+    //Only unique neighbours
+    n = n.filter((value, index, a) => a.indexOf(value) === index);
+    //Only empty hexes (no walls), no undefined hexes (out of bounds)
+    n = n.filter(function (h) {
+        if (typeof h !== 'undefined') {
+            return h.custom == 'empty'
         } else {
-            undefined.push(i)
+            return false
+        }
+    });
+    //Update neighbours
+    for (var i = 0; i < n.length; i++) {
+        if (n[i].end) {
+            found = true
+        } else {
+            n[i].custom = 'searched'
+            n[i].level = level
+            drawHex(n[i])
         }
     }
-    console.log(n)
-    for (var i = undefined.length - 1; i >= 0; i--) {
-        n.splice(undefined[i], 1)
-    }
+    //Repeat
     if (!found) {
         neighbours = n
+        level++
         window.requestAnimationFrame(searchNeighbours)
+    } else {
+        //Start at hex_end and work back to hex_start
+        neighbours = [hex_end]
+        window.requestAnimationFrame(retraceRoute)
+    }
+};
+
+var retraceRoute = function () {
+    //Get all neighbours
+    var n = grid.neighborsOf(neighbours[0])
+    n = n.filter((value, index, a) => a.indexOf(value) === index);
+    //Only empty hexes (no walls), no undefined hexes (out of bounds)
+    n = n.filter(function (h) {
+        if (typeof h !== 'undefined') {
+            return h.custom == 'searched'
+        } else {
+            return false
+        }
+    });
+    var found = false
+    var minValue = Number.POSITIVE_INFINITY
+    var minHex
+    var temp
+    for (var i = 0; i < n.length; i++) {
+        temp = n[i]
+        if (temp.start) {
+            found = true
+        }
+        if (temp.level < minValue) {
+            minValue = temp.level
+            minHex = temp
+        }
+    }
+    if (!found) {
+        minHex.custom = 'path'
+        drawHex(minHex)
+        neighbours = [minHex]
+        window.requestAnimationFrame(retraceRoute)
     }
 };
 
@@ -113,8 +158,6 @@ document.addEventListener('mousedown', ({ offsetX, offsetY }) => {
         mousedown_hex.custom = 'wall'
         drawHex(mousedown_hex)
     }
-    console.log("Mousedown", hexCoordinates)
-    console.log(offsetX, offsetY)
 })
 
 document.addEventListener('mouseup', ({ offsetX, offsetY }) => {
@@ -158,7 +201,6 @@ document.addEventListener('mouseover', ({ offsetX, offsetY }) => {
                 mousedown_hex = hex
                 hex_end = hex
             }
-            console.log(hex)
         }
     }
 })
@@ -175,6 +217,8 @@ function drawHex(hex) {
         draw.use(hexEmpty).translate(x, y)
     } else if (hex.custom == 'searched') {
         draw.use(hexSearched).translate(x, y)
+    } else if (hex.custom == 'path') {
+        draw.use(hexPath).translate(x, y)
     }
 }
 
