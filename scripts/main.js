@@ -67,6 +67,22 @@ document.getElementById("btnSearch").addEventListener("click", function () {
     window.requestAnimationFrame(searchNeighbours)
 });
 
+document.getElementById("btnClearSearch").addEventListener("click", function () {
+    grid.forEach(hex => {
+        if (hex.custom == 'searched' || hex.custom == 'path') {
+            hex.custom = 'empty'
+            drawHex(hex)
+        }
+    })
+});
+
+document.getElementById("btnClearObstacles").addEventListener("click", function () {
+    grid.forEach(hex => {
+        hex.custom = 'empty'
+        drawHex(hex)
+    })
+});
+
 var searchNeighbours = function () {
     var n = []
     var found = false
@@ -140,8 +156,11 @@ var retraceRoute = function () {
     }
 };
 
+//Get the svg grid element to add event listeners to it
+var svg = document.querySelectorAll("svg")[0];
 
-document.addEventListener('mousedown', ({ offsetX, offsetY }) => {
+svg.addEventListener('mousedown', ({ offsetX, offsetY }) => {
+
     mousedown = true
     const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
     mousedown_hex = grid.get(hexCoordinates)
@@ -160,13 +179,13 @@ document.addEventListener('mousedown', ({ offsetX, offsetY }) => {
     }
 })
 
-document.addEventListener('mouseup', ({ offsetX, offsetY }) => {
+svg.addEventListener('mouseup', ({ offsetX, offsetY }) => {
     mousedown = false
     type = 'none'
     mousedown_hex = null
 })
 
-document.addEventListener('mouseover', ({ offsetX, offsetY }) => {
+svg.addEventListener('mouseover', ({ offsetX, offsetY }) => {
     if (mousedown) {
         // convert point to hex (coordinates)
         const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
