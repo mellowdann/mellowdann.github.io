@@ -13,6 +13,17 @@
     <button id=btnSearch>Search!</button>
     <button id=btnClearSearch>Clear Search</button>
     <button id=btnClearObstacles>Clear Obstacles</button>
+    <input type="radio" id="rdoClear" name="Obstacle" value="empty" onclick="clickObstacleType(this.id)">
+    <label for="clear">Clear</label>
+    <input type="radio" id="rdoWall" name="Obstacle" value="wall" checked="checked"
+      onclick="clickObstacleType(this.id)">
+    <label for="wall">Wall</label>
+    <input type="radio" id="rdoSand" name="Obstacle" value="sand" onclick="clickObstacleType(this.id)">
+    <label for="sand">Sand (1/2 Speed)</label>
+    <input type="radio" id="rdoWater" name="Obstacle" value="water" onclick="clickObstacleType(this.id)">
+    <label for="sand">Water (1/4 Speed)</label>
+
+    <br>
   </div>
   <div>
     <script src="scripts/svg.min.js"></script>

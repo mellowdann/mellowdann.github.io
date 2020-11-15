@@ -2,7 +2,10 @@ const draw = SVG().addTo('body').size('100%', '100%')
 
 const Hex = Honeycomb.extendHex({
     size: 10,
-    custom: 'empty',
+    path: false,
+    searched: false,
+    obstacle: 'empty',
+    slowdown: 0,
     start: false,
     end: false,
     level: 0
@@ -11,30 +14,27 @@ const Grid = Honeycomb.defineGrid(Hex)
 // get the corners of a hex (they're the same for all hexes created with the same Hex factory)
 corners = Hex().corners()
 // an SVG symbol can be reused
-const hexEmpty = draw.symbol()
-    .polygon(corners.map(({ x, y }) => `${x},${y}`))
-    .fill('white')
-    .stroke({ width: 1, color: '#999' })
-const hexWall = draw.symbol()
-    .polygon(corners.map(({ x, y }) => `${x},${y}`))
-    .fill('black')
-    .stroke({ width: 1, color: '#999' })
-const hexStart = draw.symbol()
-    .polygon(corners.map(({ x, y }) => `${x},${y}`))
-    .fill('blue')
-    .stroke({ width: 1, color: '#999' })
-const hexEnd = draw.symbol()
-    .polygon(corners.map(({ x, y }) => `${x},${y}`))
-    .fill('green')
-    .stroke({ width: 1, color: '#999' })
-const hexSearched = draw.symbol()
-    .polygon(corners.map(({ x, y }) => `${x},${y}`))
-    .fill('purple')
-    .stroke({ width: 1, color: '#999' })
-const hexPath = draw.symbol()
-    .polygon(corners.map(({ x, y }) => `${x},${y}`))
-    .fill('yellow')
-    .stroke({ width: 1, color: '#999' })
+const hexEmpty = getColourHex('white')
+const hexWall = getColourHex('black')
+const hexSand = getColourHex('BurlyWood')
+const hexWater = getColourHex('cadetblue')
+const hexStart = getColourHex('green')
+const hexEnd = getColourHex('green')
+const hexSearched = getColourHex('silver')
+const hexSearchedSand = getColourHex('coral')
+const hexSearchedWater = getColourHex('steelblue')
+const hexPath = getColourHex('silver', 'red', 2)
+const hexPathSand = getColourHex('coral', 'red', 2)
+const hexPathWater = getColourHex('steelblue', 'red', 2)
+
+//Width 2 causes problem when clearing the search
+
+function getColourHex(fill, border='#999', width=1) {
+    return draw.symbol()
+        .polygon(corners.map(({ x, y }) => `${x},${y}`))
+        .fill(fill)
+        .stroke({ width: width, color: border })
+}
 
 // render 10,000 hexes
 grid = Grid.rectangle({ width: 50, height: 50 })
@@ -64,27 +64,54 @@ document.getElementById("btnSearch").addEventListener("click", function () {
     //Start at hex_start and search for hex_end
     neighbours = [hex_start]
     level++
+    nextN = []
     window.requestAnimationFrame(searchNeighbours)
 });
 
 document.getElementById("btnClearSearch").addEventListener("click", function () {
     grid.forEach(hex => {
-        if (hex.custom == 'searched' || hex.custom == 'path') {
-            hex.custom = 'empty'
+        if (hex.searched) {
+            hex.path = false
+            hex.searched = false
             drawHex(hex)
+            if (hex.obstacle == 'sand') {
+                hex.slowdown = 1
+            } else if (hex.obstacle == 'water') {
+                hex.slowdown = 3
+            }
         }
     })
 });
 
 document.getElementById("btnClearObstacles").addEventListener("click", function () {
     grid.forEach(hex => {
-        hex.custom = 'empty'
+        hex.path = false
+        hex.searched = false
+        hex.obstacle = 'empty'
+        hex.slowdown = 0
         drawHex(hex)
     })
 });
 
+var currentObstacle = 'wall'
+var currentSlowdown = 0
+
+var clickObstacleType = function (clicked_id) {
+    currentObstacle = document.getElementById(clicked_id).value;
+    if (currentObstacle == 'sand') {
+        currentSlowdown = 1
+    } else if (currentObstacle == 'water') {
+        currentSlowdown = 3
+    } else {
+        currentSlowdown = 0
+    }
+};
+
+var nextN = []
+
 var searchNeighbours = function () {
-    var n = []
+    var n = nextN
+    nextN = []
     var found = false
     //Get all neighbours
     for (var i = 0; i < neighbours.length; i++) {
@@ -94,10 +121,18 @@ var searchNeighbours = function () {
     n = n.filter((value, index, a) => a.indexOf(value) === index);
     //Only empty hexes (no walls), no undefined hexes (out of bounds)
     n = n.filter(function (h) {
-        if (typeof h !== 'undefined') {
-            return h.custom == 'empty'
-        } else {
+        if (typeof h == 'undefined') {
             return false
+        } else if (h.searched) {
+            return false
+        } else if (h.obstacle == 'wall') {
+            return false
+        } else if (h.slowdown > 0) {
+            h.slowdown--;
+            nextN = nextN.concat(h)
+            return false
+        } else {
+            return true
         }
     });
     //Update neighbours
@@ -105,7 +140,7 @@ var searchNeighbours = function () {
         if (n[i].end) {
             found = true
         } else {
-            n[i].custom = 'searched'
+            n[i].searched = true
             n[i].level = level
             drawHex(n[i])
         }
@@ -129,7 +164,7 @@ var retraceRoute = function () {
     //Only empty hexes (no walls), no undefined hexes (out of bounds)
     n = n.filter(function (h) {
         if (typeof h !== 'undefined') {
-            return h.custom == 'searched'
+            return h.searched
         } else {
             return false
         }
@@ -149,7 +184,7 @@ var retraceRoute = function () {
         }
     }
     if (!found) {
-        minHex.custom = 'path'
+        minHex.path = true
         drawHex(minHex)
         neighbours = [minHex]
         window.requestAnimationFrame(retraceRoute)
@@ -168,13 +203,9 @@ svg.addEventListener('mousedown', ({ offsetX, offsetY }) => {
         type = 'start'
     } else if (mousedown_hex.end) {
         type = 'end'
-    } else if (mousedown_hex.custom == 'wall') {
-        type = 'empty'
-        mousedown_hex.custom = 'empty'
-        drawHex(mousedown_hex)
-    } else if (mousedown_hex.custom == 'empty') {
-        type = 'wall'
-        mousedown_hex.custom = 'wall'
+    } else {
+        type = currentObstacle
+        mousedown_hex.obstacle = currentObstacle
         drawHex(mousedown_hex)
     }
 })
@@ -193,13 +224,7 @@ svg.addEventListener('mouseover', ({ offsetX, offsetY }) => {
         hex = grid.get(hexCoordinates)
         if (hex != mousedown_hex) {
             var { x, y } = hex.toPoint()
-            if (type == 'wall') {
-                hex.custom = 'wall'
-                drawHex(hex)
-            } else if (type == 'empty') {
-                hex.custom = 'empty'
-                drawHex(hex)
-            } else if (type == 'start') {
+            if (type == 'start') {
                 //new start
                 hex.start = true
                 drawHex(hex)
@@ -219,6 +244,10 @@ svg.addEventListener('mouseover', ({ offsetX, offsetY }) => {
                 //keep track of new end
                 mousedown_hex = hex
                 hex_end = hex
+            } else if (type != 'none') {
+                hex.obstacle = currentObstacle
+                hex.slowdown = currentSlowdown
+                drawHex(hex)
             }
         }
     }
@@ -230,15 +259,32 @@ function drawHex(hex) {
         draw.use(hexStart).translate(x, y)
     } else if (hex.end) {
         draw.use(hexEnd).translate(x, y)
-    } else if (hex.custom == 'wall') {
+    } else if (hex.path) {
+        if (hex.obstacle == 'sand') {
+            draw.use(hexPathSand).translate(x, y)
+        } else if (hex.obstacle == 'water') {
+            draw.use(hexPathWater).translate(x, y)
+        } else {
+            draw.use(hexPath).translate(x, y)
+        }
+    } else if (hex.searched) {
+        if (hex.obstacle == 'sand') {
+            draw.use(hexSearchedSand).translate(x, y)
+        } else if (hex.obstacle == 'water') {
+            draw.use(hexSearchedWater).translate(x, y)
+        } else {
+            draw.use(hexSearched).translate(x, y)
+        }
+    } else if (hex.obstacle == 'wall') {
         draw.use(hexWall).translate(x, y)
-    } else if (hex.custom == 'empty') {
+    } else if (hex.obstacle == 'sand') {
+        draw.use(hexSand).translate(x, y)
+    } else if (hex.obstacle == 'water') {
+        draw.use(hexWater).translate(x, y)
+    } else if (hex.obstacle == 'empty') {
         draw.use(hexEmpty).translate(x, y)
-    } else if (hex.custom == 'searched') {
-        draw.use(hexSearched).translate(x, y)
-    } else if (hex.custom == 'path') {
-        draw.use(hexPath).translate(x, y)
     }
+
 }
 
 
