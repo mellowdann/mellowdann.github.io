@@ -1,20 +1,34 @@
 const draw = SVG().addTo('body').size('100%', '100%')
 
+var algorithm = "select"
+var animation = true
+var searched = false
+var currentObstacle = 'wall'
+var currentSlowdown = 0
+
 const Hex = Honeycomb.extendHex({
-    size: 10,//default 10
+    size: 20,//default 10
     path: false,
     obstacle: 'empty',
     slowdown: 0,
     start: false,
     end: false,
     level: 0,
-    fscore: Number.MAX_SAFE_INTEGER,
-    gscore: 0,
-    hscore: 0,
+    f: Infinity,
+    g: 0,
+    rhs: 0,
+    k1: 0,
+    k2: 0,
+    h: 0,
+    robot: undefined,
     openSet: false,
     closedSet: false,
-    parent: undefined
-})
+    parent: undefined,
+    unit: undefined,
+    tag: undefined,
+    b: undefined
+});
+
 const Grid = Honeycomb.defineGrid(Hex)
 // get the corners of a hex (they're the same for all hexes created with the same Hex factory)
 corners = Hex().corners()
@@ -41,7 +55,13 @@ const hexWaterClosed = getColourHex('#80b3ff')
 const hexWaterPath = getColourHex('#80b3ff', 'red', 1)
 
 const hexEnemy = getColourHex('#ff0000')
-const hexEnemyOpen = getColourHex('#800000')
+
+const hexKnownHostile = getColourHex('#ff0000')
+const hexUnknownHostile = getColourHex('#ff8080')
+
+const hexKnownFriendly = getColourHex('#00ff00')
+const hexUnknownFriendly = getColourHex('#80ff80')
+
 const hexEnemyClosed = getColourHex('#ff8080')
 const hexEnemyPath = getColourHex('#ff8080', 'red', 1)
 
@@ -54,7 +74,7 @@ function getColourHex(fill, border = '#999', width = 1) {
         .stroke({ width: width, color: border })
 }
 
-gridsize = 50
+gridsize = 20
 
 // grid = gridsize x gridsize
 grid = Grid.rectangle({ width: gridsize, height: gridsize })
@@ -65,6 +85,7 @@ grid.forEach(hex => {
     // use hexSymbol and set its position for each hex
     draw.use(hexEmpty).translate(x, y)
 })
+
 
 //Start and End Hexes
 hex_start = grid.get([0, 0])
@@ -79,54 +100,691 @@ draw.use(hexEnd).translate(x, y)
 
 var mousedown = false
 var type = 'none'
-var neighbours = []
 var level = 0
 
 //astar
 var openSet = []
 var closedSet = []
 var path = []
+var walk = []
+//unknown and known hostile and friendly
+var knownHostile = []
+var knownHostileAdded = 0
+var knownFriendly = []
+var knownFriendlyAdded = 0
+var originallyUnknown = []
+
+var time0 = 0
+var pathlength = 0
+
+if (localStorage.getItem("load") == "true") {
+    loadState(localStorage.getItem("grid"))
+}
+if (localStorage.getItem("loadOptions") == "true") {
+    console.log("Algorithm: ", localStorage.getItem("algorithm"))
+    console.log("obstacle: ", localStorage.getItem("obstacle"))
+    console.log("animation: ", localStorage.getItem("animation"))
+    loadOptions(localStorage.getItem("algorithm"),
+        localStorage.getItem("obstacle"),
+        localStorage.getItem("animation"))
+} else {
+    localStorage.setItem("loadOptions", "true")
+}
+
+grid.forEach(hex => {
+    resetHex(hex)
+    hex.tag = 'NEW'
+})
+
+
+function loadOptions(alg, obs, ani) {
+    document.getElementById("ddAlgorithm").value = alg
+    algorithm = alg
+    var obstacleID = "rdo" + obs.charAt(0).toUpperCase() + obs.slice(1)
+    document.getElementById(obstacleID).checked = true
+    assignCurrentObstacle(obs)
+    if (ani == "true") {
+        document.getElementById("rdoAnimation").checked = true
+        animation = true
+    } else {
+        document.getElementById("rdoNoAnimation").checked = true
+        animation = false
+    }
+}
+
+
+function saveState() {
+    var hexList = ""
+    var obstacle = ""
+    var num_hexes = grid.length
+    for (var i = 0; i < num_hexes; i++) {
+        if (grid[i] == hex_start) {
+            hexList += "8"
+        } else if (grid[i] == hex_end) {
+            hexList += "9"
+        } else {
+            obstacle = grid[i].obstacle
+            if (obstacle == 'empty') {
+                hexList += "0"
+            } else if (obstacle == 'wall') {
+                hexList += "1"
+            } else if (obstacle == 'sand') {
+                hexList += "2"
+            } else if (obstacle == 'water') {
+                hexList += "3"
+            } else if (obstacle == 'unknownHostile') {
+                hexList += "4"
+            } else if (obstacle == 'knownHostile') {
+                hexList += "5"
+            } else if (obstacle == 'unknownFriendly') {
+                hexList += "6"
+            } else if (obstacle == 'knownFriendly') {
+                hexList += "7"
+            }
+        }
+    }
+    localStorage.setItem("grid", hexList)
+    localStorage.setItem("load", "true")
+}
+
+function loadState(hexList) {
+    var hexArray = hexList.split("").map(x => +x)
+    var num_hexes = hexList.length
+    for (var i = 0; i < num_hexes; i++) {
+        resetHex(grid[i])
+        if (hexArray[i] == "8") {
+            hex_start.start = false
+            drawHex(hex_start)
+            grid[i].start = true
+            hex_start = grid[i]
+        } else if (hexArray[i] == "9") {
+            hex_end.end = false
+            drawHex(hex_end)
+            grid[i].end = true
+            hex_end = grid[i]
+        } else if (hexArray[i] == "0") {
+            grid[i].obstacle = 'empty'
+        } else if (hexArray[i] == "1") {
+            grid[i].obstacle = 'wall'
+            grid[i].slowdown = 10000
+        } else if (hexArray[i] == "2") {
+            grid[i].obstacle = 'sand'
+            grid[i].slowdown = 1
+        } else if (hexArray[i] == "3") {
+            grid[i].obstacle = 'water'
+            grid[i].slowdown = 3
+        } else if (hexArray[i] == "4") {
+            grid[i].obstacle = 'unknownHostile'
+        } else if (hexArray[i] == "5") {
+            grid[i].obstacle = 'knownHostile'
+            grid[i].slowdown = 10000
+        } else if (hexArray[i] == "6") {
+            grid[i].obstacle = 'unknownFriendly'
+        } else if (hexArray[i] == "7") {
+            grid[i].obstacle = 'knownFriendly'
+        }
+        drawHex(grid[i])
+    }
+}
 
 document.getElementById("btnSearch").addEventListener("click", function () {
-    //Astar
-    openSet.push(hex_start)
-    hex_start.openSet = true
-    window.requestAnimationFrame(a_star)
+    if (!searched) {
+        saveState()
+        searched = true
+        time0 = new Date().getTime()
+        pathlength = 0
+        hex_end.obstacle = 'empty'
+        hex_start.obstacle = 'empty'
+        if (algorithm == 'a*') {
+            //Astar
+            openSet.push(hex_start)
+            hex_start.openSet = true
+            if (animation) {
+                window.requestAnimationFrame(a_star)
+            } else {
+                a_star()
+            }
+        } else if (algorithm == 'dijkstra') {
+            //Dijkstra
+            openSet.push(hex_start)
+            hex_start.openSet = true
+            if (animation) {
+                window.requestAnimationFrame(a_star) // the heuristic is removed
+            } else {
+                a_star()
+            }
+        } else if (algorithm == "lpa*") {
+            //Initialize
+            //all vertices g and rhs are = infinity from earlier loop
+            hex_start.rhs = 0
+            calculateKey(hex_start)
+            calculateKey(hex_end)
+            addVertexToQueue(openSet, hex_start)
+            //End of initialize
+            window.requestAnimationFrame(computeShortestPath)
 
-
-    //Dijkstra
-    //Start at hex_start and search for hex_end
-    //neighbours = [hex_start]
-    //level = 1
-    //nextN = []
-    //window.requestAnimationFrame(dijkstra)
+        } else if (algorithm == 'd*') {
+            console.log('Search d*!')
+            var result = d_star_move(hex_start, hex_end)
+            console.log(result)
+            print_grid('end')
+        }
+    }
 });
 
-var follow_path = function () {
-    hex = path[path.length - 1]
-    //Restart search if enemy is found
-    if (hex.obstacle == 'enemy') {
-        hex.obstacle = 'wall'
-        for (var i = 0; i < openSet.length; i++) {
-            resetHex(openSet[i])
-            drawHex(openSet[i])
+
+
+var r_current = hex_start // robot position
+var d_current = 0
+
+var movecount = 0
+function d_star_move(S, G) {
+    //all vertices start with tag = 'NEW'
+    d_current = 0
+    r_current = hex_start
+    d_star_insert(G, 0)
+    var val = [0, 0]
+    while (S.tag != 'CLOSED' && val != null) {
+        val = d_star_process_state()
+    }
+    if (S.tag == 'NEW')
+        return 'NO-PATH!'
+    print_grid(movecount)
+    var R = S
+    while (R != G) {
+        movecount++
+        var neighbours = filter_neighbours(R)
+        var changes = []
+        for (var i = 0; i < neighbours.length; i++) {
+            var Y = neighbours[i]
+            if (Y.obstacle == 'unknownHostile')
+                changes.push(Y)
         }
-        openSet = []
-        openSet.push(hex.parent)
-        hex.parent.openSet = true
-        for (var i = 0; i < closedSet.length; i++) {
-            resetHex(closedSet[i])
-            drawHex(closedSet[i])
+        if (r_current != R) {
+            d_current = d_current + d_star_gval(R, r_current)
+            r_current = R
         }
-        closedSet = []
-        path = []
-        window.requestAnimationFrame(a_star)
+        if (changes.length > 0) {
+            for (var i = 0; i < changes.length; i++)
+                val = d_star_modify_cost(changes[i], R, 10000)
+            while (val != null && d_star_less(val, d_star_cost(R)))
+                val = d_star_process_state()
+        }
+        console.log('')
+        print_grid(movecount)
+        log('R', R)
+        R.path = true
+        drawHex(R)
+        R = R.b
+    }
+    return 'GOAL-REACHED!'
+}
+
+function d_star_modify_cost(X, Y, cval) {
+    //c(X,Y) = cval
+    console.log('Modify')
+    X.obstacle = 'knownHostile'
+    X.slowdown = cval
+    if (X.tag == 'CLOSED')
+        d_star_insert(X, X.h)
+    return d_star_min_val()
+}
+
+var update_list = []
+var countRepeats = 0
+var count = 0;
+function d_star_process_state() {
+    var X = d_star_min_state()
+    if (X == null)
+        return null
+    //exit endless loop
+    if (count > 5) {
+        if (update_list[count - 1] == X) {
+            countRepeats++
+            if (countRepeats > 5) {
+                // openSet.pop()
+                // return null
+                var stop = true
+            }
+        } else
+            countRepeats = 0
+    }
+    update_list.push(X)
+    var val = [X.f, X.k1]
+    var kval = X.k1
+    d_star_delete_vertex(X)
+    var neighbours = filter_neighbours(X)
+    log(count, X)
+    if (kval < X.h) {
+        console.log(count, 'Less than')
+        for (var i = 0; i < neighbours.length; i++) {
+            var Y = neighbours[i]
+            if (Y.tag != 'NEW' && d_star_lessq(d_star_cost(Y), val) && X.h > Y.h + Y.slowdown + 1) {
+                X.b = Y
+                X.h = Y.h + Y.slowdown + 1
+                log('set', Y)
+            } else
+                log('no set', Y)
+        }
+    }
+    if (kval == X.h) {
+        console.log(count, 'Equal')
+        for (var i = 0; i < neighbours.length; i++) {
+            var Y = neighbours[i]
+            if (Y.tag == 'NEW' ||
+                (Y.b == X && Y.h != X.h + X.slowdown + 1) ||
+                (Y.b != X && Y.h > X.h + X.slowdown + 1)) {
+                Y.b = X
+                d_star_insert(Y, X.h + X.slowdown + 1)
+                log('set', Y)
+            } else
+                log('no set', Y)
+        }
     } else {
+        console.log(count, 'Not equal')
+        for (var i = 0; i < neighbours.length; i++) {
+            var Y = neighbours[i]
+            if (Y.tag == 'NEW' ||
+                (Y.b == X && Y.h != X.h + X.slowdown + 1)) {
+                Y.b = X
+                d_star_insert(Y, X.h + X.slowdown + 1)
+                log('set1', Y)
+            } else if (Y.b != X && Y.h > X.h + X.slowdown + 1 && X.tag == 'CLOSED') {
+                Y.b = X
+                d_star_insert(Y, X.h + X.slowdown + 1)
+                d_star_insert(X, X.h)
+                log('set2', Y)
+            } else if (Y.b != X && X.h > Y.h + Y.slowdown + 1 && Y.tag == 'CLOSED' && d_star_less(val, d_star_cost(Y))) {
+                d_star_insert(Y, Y.h)
+                log('set3', Y)
+            } else
+                log('no set', Y)
+        }
+    }
+    count++
+    console.log('')
+    return d_star_min_val()
+}
+
+function d_star_gval(X, Y) {
+    return heuristic(X, Y)
+}
+
+function d_star_min_val() {
+    var X = d_star_min_state()
+    if (X == null)
+        return null
+    else
+        return [X.f, X.k1]
+}
+
+function d_star_min_state() {
+    var X = d_star_get_state()
+    while (X != null) {
+        if (X.robot != r_current) {
+            var h_new = X.h
+            X.h = X.k1
+            d_star_delete_vertex(X)
+            d_star_insert(X, h_new)
+        } else
+            return X
+        X = d_star_get_state()
+    }
+    return null
+}
+
+function d_star_insert(X, h_new) {
+    if (X.tag == 'NEW') {
+        X.k1 = h_new
+    } else {
+        if (X.tag == 'OPEN') {
+            X.k1 = Math.min(X.k1, h_new)
+            d_star_delete_vertex(X)
+        } else {
+            X.k1 = Math.min(X.k1, h_new)
+        }
+    }
+    X.h = h_new
+    X.robot = r_current
+    X.f = X.k1 + d_star_gval(X, r_current)
+    X.fb = X.f + d_current
+    d_star_delete_vertex(X)
+    d_star_put_vertex(X)
+}
+
+function d_star_cost(X) {
+    var f = X.h + d_star_gval(X, r_current)
+    return [f, X.h]
+}
+
+function d_star_lessq(a, b) {
+    if (a[0] < b[0])
+        return true
+    else if (a[0] == b[0])
+        if (a[1] <= b[1])
+            return true
+    return false
+}
+
+function d_star_less(a, b) {
+    if (a[0] < b[0])
+        return true
+    else if (a[0] == b[0])
+        if (a[1] < b[1])
+            return true
+    return false
+}
+
+function d_star_get_state() {
+    return openSet[0]
+}
+
+//d* - remove vertex from open list and set vertex.tag = closed
+function d_star_delete_vertex(vertex) {
+    vertex.tag = "CLOSED"
+    vertex.openSet = false
+    vertex.closedSet = true
+    var len = openSet.length;
+    //remove vertex from the queue, if it exists
+    for (var i = len - 1; i >= 0; i--) {
+        if (openSet[i].x == vertex.x) {
+            if (openSet[i].y == vertex.y) {
+                openSet.splice(i, 1);
+            }
+        }
+    }
+    drawHex(vertex)
+}
+
+//d* - set vertex.tag = Open and insert vertex on open list according to the key
+function d_star_put_vertex(vertex) {
+    len = openSet.length;
+    for (let i = 0; i < len; i++) {
+        if ((vertex.fb < openSet[i].fb) || (vertex.fb == openSet[i].fb && vertex.f < openSet[i].f) ||
+            (vertex.fb == openSet[i].fb && vertex.f == openSet[i].f && vertex.k1 < openSet[i].k1)) {
+            openSet.splice(i, 0, vertex)
+            vertex.openSet = true
+            vertex.closedSet = false
+            vertex.newSet = false
+            drawHex(vertex)
+            return
+        }
+    }
+    //if length == 0 or the vertex is not better than any of the previous vertices
+    openSet.push(vertex)
+    vertex.tag = 'OPEN'
+    vertex.openSet = true
+    vertex.closedSet = false
+    vertex.newSet = false
+    drawHex(vertex)
+}
+
+function print_grid(name) {
+    grid.forEach(hex => {
+        log(name, hex)
+    });
+}
+
+function log(name, vertex) {
+    if (vertex.b != null)
+        console.log('...' + name, "(" + vertex.x + ',' + vertex.y + ")", 'fb:', vertex.fb, 'f:', vertex.f, 'k1:', vertex.k1, 'h:', vertex.h, 'tag:', vertex.tag, 'b:', "(" + vertex.b.x + ',' + vertex.b.y + ")")
+    else
+        console.log('...' + name, "(" + vertex.x + ',' + vertex.y + ")", 'fb:', vertex.fb, 'f:', vertex.f, 'k1:', vertex.k1, 'h:', vertex.h, 'tag:', vertex.tag, 'b:', "-")
+}
+
+function log_openSet(set) {
+    for (var i = 0; i < set.length; i++) {
+        log('openSet:', openSet[i])
+    }
+}
+
+
+
+var backtrack_goal = hex_start
+//lpa*
+var backtrack_path = function () {
+    path = []
+    var current = hex_end
+    path.push(current)
+    while (current != backtrack_goal) {
+        var neighbours = filter_neighbours(current)
+        var min_g = Infinity
+        for (var i = 0; i < neighbours.length; i++) {
+            if (neighbours[i].g < min_g) {
+                min_g = neighbours[i].g
+                current = neighbours[i]
+            }
+        }
+        path.push(current)
+        current.path = true
+        drawHex(current)
+    }
+    window.requestAnimationFrame(follow_path)
+}
+
+
+//lpa*
+function calculateKey(vertex) {
+    vertex.k2 = Math.min(vertex.g, vertex.rhs)
+    vertex.k1 = vertex.k2 + vertex.h
+}
+
+//lpa*
+function updateVertex(vertex) {
+    if (vertex != hex_start && vertex != backtrack_goal) {
+        var neighbours = filter_neighbours(vertex)
+        var min_rhs = Infinity
+        var temp_rhs = Infinity
+        for (var i = 0; i < neighbours.length; i++) {
+            // distance to neighbour + cost to move to current vertex
+            temp_rhs = neighbours[i].g + vertex.slowdown + 1
+            if (temp_rhs < min_rhs) {
+                min_rhs = temp_rhs
+            }
+        }
+        vertex.rhs = min_rhs
+    }
+    //remove from priority queue
+    removeFromQueue(openSet, vertex)
+    if (vertex.g != vertex.rhs) {
+        calculateKey(vertex)
+        //add to priprity queue
+        addVertexToQueue(openSet, vertex)
+    } else {
+        vertex.closedSet = true
+    }
+    drawHex(vertex)
+}
+
+function filter_neighbours(vertex) {
+    var neighbours = grid.neighborsOf(vertex)
+    //Only empty hexes (no walls), no undefined hexes (out of bounds)
+    neighbours = neighbours.filter(function (h) {
+        if (typeof h == 'undefined') {
+            return false
+        } else if (h.closedSet && (algorithm == 'a*' || algorithm == 'dijkstra')) {
+            return false
+        } else if (h.obstacle == 'wall') {
+            return false
+        } else if (h.obstacle == 'knownHostile' && algorithm != 'd*') {
+            return false
+        } else {
+            return true
+        }
+    });
+    return neighbours
+}
+
+var count = 0;
+//lpa*
+var computeShortestPath = function () {
+    if (checkLoopConstraints()) {
+        var vertex = openSet.shift() // Get index 0 from the priority queue
+        vertex.openSet = false
+        if (vertex.g > vertex.rhs) {
+            vertex.g = vertex.rhs
+            //update all predecessors
+            var neighbours = filter_neighbours(vertex)
+            for (var i = 0; i < neighbours.length; i++) {
+                updateVertex(neighbours[i])
+            }
+        } else {
+            vertex.g = Infinity
+            //update all predecessors
+            var neighbours = filter_neighbours(vertex)
+            for (var i = 0; i < neighbours.length; i++) {
+                updateVertex(neighbours[i])
+            }
+            //update self
+            updateVertex(vertex)
+        }
+        window.requestAnimationFrame(computeShortestPath)
+    }
+    else {
+        //print_grid('Compute Shorest Path - end')
+        window.requestAnimationFrame(backtrack_path)
+    }
+}
+
+//lpa* - used in compute Shortest Path
+function checkLoopConstraints() {
+    calculateKey(hex_end)
+    if (openSet.length > 0) {
+        if (((openSet[0].k1 < hex_end.k1) || ((openSet[0].k1 == hex_end.k1) && (openSet[0].k2 < hex_end.k2)))
+            || (hex_end.g != hex_end.rhs)) {
+            return true
+        }
+    }
+    return false
+}
+
+//lpa* - add to priority queue
+function addVertexToQueue(queue, vertex) {
+    var len = queue.length;
+    for (let i = 0; i < len; i++) {
+        if ((vertex.k1 < queue[i].k1) || ((vertex.k1 == queue[i].k1) && (vertex.k2 < queue[i].k2))) {
+            queue.splice(i, 0, vertex)
+            vertex.openSet = true
+            vertex.closedSet = false
+            return
+        }
+    }
+    //if length == 0 or the vertex is not better than any of the previous vertices
+    queue.push(vertex)
+    vertex.openSet = true
+    vertex.closedSet = false
+
+}
+
+//lpa* - remove from priority queue
+function removeFromQueue(queue, vertex) {
+    for (var i = queue.length - 1; i >= 0; i--) {
+        if (queue[i].x == vertex.x) {
+            if (queue[i].y == vertex.y) {
+                queue.splice(i, 1);
+                vertex.openSet = false
+            }
+        }
+    }
+}
+
+var follow_path = function () {
+    //print_grid('follow - start')
+    hex = path.pop()
+    //Restart search if enemy is found
+    if (hex.obstacle == 'unknownHostile') {
+        hex.obstacle = 'knownHostile'
+        hex.closedSet = false
+        hex.openSet = false
+        knownHostile.push(hex)
+        knownHostileAdded++
+        originallyUnknown.push(hex)
+        //Adjust walk so last hex is not duplicated
+        walk.pop()
+        pathlength--
+        drawHex(hex)
+        if (algorithm == 'a*' || algorithm == 'dijkstra') {
+            for (var i = 0; i < openSet.length; i++) {
+                resetHex(openSet[i])
+                drawHex(openSet[i])
+            }
+            openSet = []
+            openSet.push(hex.parent)
+            hex.parent.openSet = true
+            for (var i = 0; i < closedSet.length; i++) {
+                resetHex(closedSet[i])
+                drawHex(closedSet[i])
+            }
+            closedSet = []
+            path = []
+            if (animation) {
+                window.requestAnimationFrame(a_star)
+            } else {
+                a_star()
+            }
+        } else if (algorithm == 'lpa*') {
+            //edge cost changed = true
+            path = []
+            hex.path = false
+            hex.rhs = Infinity
+            hex.g = Infinity
+            var neighbours = filter_neighbours(hex)
+            for (var i = 0; i < neighbours.length; i++) {
+                updateVertex(neighbours[i])
+            }
+            var previous_hex = hex.parent
+            previous_hex.rhs = 0
+            previous_hex.g = 0
+            neighbours = filter_neighbours(previous_hex)
+            for (var i = 0; i < neighbours.length; i++) {
+                updateVertex(neighbours[i])
+            }
+            window.requestAnimationFrame(computeShortestPath)
+        } else if (algorithm == 'd*') {
+            console.log('before')
+            log_openSet(openSet)
+            print_grid('before')
+            path = []
+            modify_cost(hex, 10000)
+            var neighbours = filter_neighbours(hex)
+            for (var i = 0; i < neighbours.length; i++) {
+                neighbours[i].tag = "OPEN"
+                insert(neighbours[i], neighbours[i].h)
+            }
+            console.log('after insert')
+            log_openSet(openSet)
+            print_grid('after')
+            if (animation) {
+                window.requestAnimationFrame(process_state)
+            } else {
+                process_state()
+            }
+        }
+    } else {
+        backtrack_goal = hex
+        if (hex.obstacle == 'unknownFriendly') {
+            hex.obstacle = 'knownFriendly'
+            knownFriendly.push(hex)
+            knownFriendlyAdded++
+            originallyUnknown.push(hex)
+        }
         hex.walk = true
-        path.pop()
+        pathlength++
+        walk.push(hex)
         drawHex(hex)
         if (path.length > 0) {
-            requestAnimationFrame(follow_path);
+            path[path.length - 1].parent = hex
+            if (animation) {
+                window.requestAnimationFrame(follow_path)
+            } else {
+                follow_path()
+            }
+        } else {
+            //Done
+            var time1 = new Date().getTime()
+            console.log("Time taken: ", time1 - time0)
+            console.log("Path length: ", pathlength)
+            console.log(walk)
         }
     }
 };
@@ -134,7 +792,7 @@ var follow_path = function () {
 var a_star = function () {
     var minIndex = 0
     for (var i = 0; i < openSet.length; i++) {
-        if (openSet[i].fscore < openSet[minIndex].fscore) {
+        if (openSet[i].f < openSet[minIndex].f) {
             minIndex = i
         }
     }
@@ -152,7 +810,11 @@ var a_star = function () {
             drawHex(current)
         }
         //Actually traverse the path
-        requestAnimationFrame(follow_path);
+        if (animation) {
+            window.requestAnimationFrame(follow_path)
+        } else {
+            follow_path()
+        }
         return
     }
 
@@ -168,47 +830,43 @@ var a_star = function () {
     });
     drawHex(current)
 
-    var neighbors = grid.neighborsOf(current)
-    //Only empty hexes (no walls), no undefined hexes (out of bounds)
-    neighbors = neighbors.filter(function (h) {
-        if (typeof h == 'undefined') {
-            return false
-        } else if (h.closedSet) {
-            return false
-        } else if (h.obstacle == 'wall') {
-            return false
-        } else {
-            return true
-        }
-    });
+    var neighbours = filter_neighbours(current)
 
-
-
-    for (var i = 0; i < neighbors.length; i++) {
-        var gscore = current.gscore + 1 + neighbors[i].slowdown
+    for (var i = 0; i < neighbours.length; i++) {
+        var g = current.g + 1 + neighbours[i].slowdown
         //Better g value?
-        if (openSet.includes(neighbors[i])) {
-            if (gscore <= neighbors.gscore) {
-                neighbors[i].gscore = gscore
-                neighbors[i].parent = current
-                neighbors[i].hscore = heuristic(neighbors[i], hex_end)
-                neighbors[i].fscore = neighbors[i].gscore + neighbors[i].hscore
+        if (openSet.includes(neighbours[i])) {
+            if (g <= neighbours[i].g) {
+                neighbours[i].g = g
+                neighbours[i].parent = current
+                if (algorithm == 'a*') {
+                    neighbours[i].h = heuristic(neighbours[i], hex_end)
+                } else { // dijkstra
+                    neighbours[i].h = 0
+                }
+                neighbours[i].f = neighbours[i].g + neighbours[i].h
             }
         } else {
-            neighbors[i].gscore = gscore
-            neighbors[i].parent = current
-            neighbors[i].hscore = heuristic(neighbors[i], hex_end)
-            neighbors[i].fscore = neighbors[i].gscore + neighbors[i].hscore
-            openSet.push(neighbors[i])
-            neighbors[i].openSet = true
-            drawHex(neighbors[i])
+            neighbours[i].g = g
+            neighbours[i].parent = current
+            //heuristic value in h is already set
+            //in dijkstra h = 0
+            //in a* h = heuristic(hex, goal)
+            neighbours[i].f = neighbours[i].g + neighbours[i].h
+            openSet.push(neighbours[i])
+            neighbours[i].openSet = true
+            drawHex(neighbours[i])
         }
 
     }
 
-    
+
     if (openSet.length > 0) {
-        window.requestAnimationFrame(a_star)
+        if (animation) {
+            window.requestAnimationFrame(a_star)
+        } else {
+            a_star()
+        }
     } else {
         alert('No path found')
     }
@@ -216,15 +874,13 @@ var a_star = function () {
 };
 
 function heuristic(hex1, hex2) {
-    //manhattan distance
-    return Math.abs(hex1.x - hex2.x) + Math.abs(hex1.y - hex2.y)
+    var p1 = hex1.cube()
+    var p2 = hex2.cube()
+    return Math.max(Math.abs(p1.q - p2.q), Math.abs(p1.r - p2.r), Math.abs(p1.s - p2.s))
 }
 
-function resetHex(hex, obstacles = false) {
+function resetHex(hex, obstacles = false, walk = false) {
     hex.path = false
-    hex.fscore = Number.MAX_SAFE_INTEGER
-    hex.gscore = 0
-    hex.hscore = 0
     hex.openSet = false
     hex.closedSet = false
     hex.parent = undefined
@@ -232,29 +888,36 @@ function resetHex(hex, obstacles = false) {
         hex.obstacle = 'empty'
         slowdown = 0
     }
+    if (walk) {
+        hex.walk = false
+    }
+    resetStats(hex)
+}
+
+function resetStats(hex) {
+    hex.f = Infinity
+    hex.rhs = Infinity
+    if (algorithm == "a*") {
+        hex.g = 0
+        hex.h = heuristic(hex, hex_end)
+    } else if (algorithm == "lpa*") {
+        hex.g = Infinity
+        hex.h = heuristic(hex, hex_end)
+    } else if (algorithm == 'dijkstra') {
+        hex.h = 0
+    }
 }
 
 document.getElementById("btnClearSearch").addEventListener("click", function () {
-    for (var i = 0; i < openSet.length; i++) {
-        resetHex(openSet[i])
-        drawHex(openSet[i])
+    if (!searched) {
+        saveState()
     }
-    openSet = []
-    for (var i = 0; i < closedSet.length; i++) {
-        resetHex(closedSet[i])
-        drawHex(closedSet[i])
-    }
-    closedSet = []
+    location.reload()
 });
 
 document.getElementById("btnClearObstacles").addEventListener("click", function () {
-    openSet = []
-    closedSet = []
-
-    grid.forEach(hex => {
-        resetHex(hex, true)
-        drawHex(hex)
-    })
+    localStorage.setItem("load", "false")
+    location.reload()
 });
 
 document.getElementById("btnRandomWalls").addEventListener("click", function () {
@@ -266,131 +929,58 @@ document.getElementById("btnRandomWalls").addEventListener("click", function () 
     })
 });
 
-var currentObstacle = 'wall'
-var currentSlowdown = 0
+function clickObstacleType(clicked_id) {
+    assignCurrentObstacle(document.getElementById(clicked_id).value)
+    localStorage.setItem("obstacle", currentObstacle)
+};
 
-var clickObstacleType = function (clicked_id) {
-    currentObstacle = document.getElementById(clicked_id).value;
+function assignCurrentObstacle(obstacle) {
+    currentObstacle = obstacle
     if (currentObstacle == 'sand') {
         currentSlowdown = 1
     } else if (currentObstacle == 'water') {
         currentSlowdown = 3
+    } else if (currentObstacle == 'wall' || currentObstacle == 'knownHostile') {
+        currentSlowdown = 10000
     } else {
         currentSlowdown = 0
     }
+}
+
+function clickAnimation(clicked_id) {
+    clicked = document.getElementById(clicked_id).value;
+    animation = clicked == 'animation' ? true : false;
+    localStorage.setItem("animation", animation)
 };
 
-
-
-var nextN = []
-var dijkstra = function () {
-    var n = nextN
-    nextN = []
-    var found = false
-    //Get all neighbours
-    for (var i = 0; i < neighbours.length; i++) {
-        n = n.concat(grid.neighborsOf(neighbours[i]))
-    }
-    //Only unique neighbours
-    n = n.filter((value, index, a) => a.indexOf(value) === index);
-    //Only empty hexes (no walls), no undefined hexes (out of bounds)
-    n = n.filter(function (h) {
-        if (typeof h == 'undefined') {
-            return false
-        } else if (h.searched) {
-            return false
-        } else if (h.obstacle == 'wall') {
-            return false
-        } else if (h.slowdown > 0) {
-            h.slowdown--;
-            nextN = nextN.concat(h)
-            return false
-        } else {
-            return true
-        }
-    });
-    //Update neighbours
-    for (var i = 0; i < n.length; i++) {
-        if (n[i].end) {
-            found = true
-        } else {
-            n[i].searched = true
-            n[i].level = level
-            console.log(n[i])
-            drawHex(n[i])
-        }
-    }
-    //Repeat
-    if (!found) {
-        neighbours = n
-        level++
-        window.requestAnimationFrame(dijkstra)
-    } else {
-        //Start at hex_end and work back to hex_start
-        neighbours = [hex_end]
-        window.requestAnimationFrame(retraceRoute)
-    }
-};
-
-
-
-var retraceRoute = function () {
-    //Get all neighbours
-    var n = grid.neighborsOf(neighbours[0])
-    n = n.filter((value, index, a) => a.indexOf(value) === index);
-    //Only empty hexes (no walls), no undefined hexes (out of bounds)
-    n = n.filter(function (h) {
-        if (typeof h !== 'undefined') {
-            return h.searched
-        } else {
-            return false
-        }
-    });
-    var found = false
-    var minValue = Number.POSITIVE_INFINITY
-    var minHex
-    var temp
-    for (var i = 0; i < n.length; i++) {
-        temp = n[i]
-        if (temp.start) {
-            found = true
-        }
-        if (temp.level < minValue) {
-            minValue = temp.level
-            minHex = temp
-        }
-    }
-    if (!found) {
-        minHex.path = true
-        drawHex(minHex)
-        neighbours = [minHex]
-        window.requestAnimationFrame(retraceRoute)
-    }
-};
 
 //Get the svg grid element to add event listeners to it
 var svg = document.querySelectorAll("svg")[0];
 
-svg.addEventListener('mousedown', ({ offsetX, offsetY }) => {
 
-    mousedown = true
+
+svg.addEventListener('mousedown', ({ offsetX, offsetY }) => {
     const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
     mousedown_hex = grid.get(hexCoordinates)
-    if (mousedown_hex.start) {
-        type = 'start'
-    } else if (mousedown_hex.end) {
-        type = 'end'
-    } else {
-        type = currentObstacle
-        mousedown_hex.obstacle = currentObstacle
-        drawHex(mousedown_hex)
+    if (mousedown_hex != undefined) {
+        mousedown = true
+        if (mousedown_hex.start) {
+            type = 'start'
+        } else if (mousedown_hex.end) {
+            type = 'end'
+        } else {
+            type = currentObstacle
+            mousedown_hex.obstacle = currentObstacle
+            mousedown_hex.slowdown = currentSlowdown
+            drawHex(mousedown_hex)
+        }
     }
 })
 
 svg.addEventListener('mouseup', ({ offsetX, offsetY }) => {
     mousedown = false
     type = 'none'
-    mousedown_hex = null
+    // mousedown_hex = null
 })
 
 svg.addEventListener('mouseover', ({ offsetX, offsetY }) => {
@@ -399,7 +989,7 @@ svg.addEventListener('mouseover', ({ offsetX, offsetY }) => {
         const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
         // get the actual hex from the grid
         hex = grid.get(hexCoordinates)
-        if (hex != mousedown_hex) {
+        if (hex != mousedown_hex && hex != undefined) {
             var { x, y } = hex.toPoint()
             if (type == 'start') {
                 //new start
@@ -430,6 +1020,7 @@ svg.addEventListener('mouseover', ({ offsetX, offsetY }) => {
     }
 })
 
+
 function drawHex(hex) {
     const { x, y } = hex.toPoint()
     if (hex.start) {
@@ -443,8 +1034,8 @@ function drawHex(hex) {
             draw.use(hexSandPath).translate(x, y)
         } else if (hex.obstacle == 'water') {
             draw.use(hexWaterPath).translate(x, y)
-        } else if (hex.obstacle == 'enemy') {
-            draw.use(hexEnemyPath).translate(x, y)
+        } else if (hex.obstacle == 'knownHostile') {
+            draw.use(hexKnownHostile).translate(x, y)
         } else {
             draw.use(hexEmptyPath).translate(x, y)
         }
@@ -453,8 +1044,8 @@ function drawHex(hex) {
             draw.use(hexSandOpen).translate(x, y)
         } else if (hex.obstacle == 'water') {
             draw.use(hexWaterOpen).translate(x, y)
-        } else if (hex.obstacle == 'enemy') {
-            draw.use(hexEnemyOpen).translate(x, y)
+        } else if (hex.obstacle == 'knownHostile') {
+            draw.use(hexKnownHostile).translate(x, y)
         } else {
             draw.use(hexEmptyOpen).translate(x, y)
         }
@@ -463,8 +1054,10 @@ function drawHex(hex) {
             draw.use(hexSandClosed).translate(x, y)
         } else if (hex.obstacle == 'water') {
             draw.use(hexWaterClosed).translate(x, y)
-        } else if (hex.obstacle == 'enemy') {
-            draw.use(hexEnemyClosed).translate(x, y)
+        } else if (hex.obstacle == 'knownHostile') {
+            draw.use(hexKnownHostile).translate(x, y)
+        } else if (hex.obstacle == 'unknownHostile') {
+            draw.use(hexUnknownHostile).translate(x, y)
         } else {
             draw.use(hexEmptyClosed).translate(x, y)
         }
@@ -474,12 +1067,28 @@ function drawHex(hex) {
         draw.use(hexSand).translate(x, y)
     } else if (hex.obstacle == 'water') {
         draw.use(hexWater).translate(x, y)
-    } else if (hex.obstacle == 'enemy') {
-        draw.use(hexEnemy).translate(x, y)
+    } else if (hex.obstacle == 'knownHostile') {
+        draw.use(hexKnownHostile).translate(x, y)
+    } else if (hex.obstacle == 'unknownHostile') {
+        draw.use(hexUnknownHostile).translate(x, y)
+    } else if (hex.obstacle == 'knownFriendly') {
+        draw.use(hexKnownFriendly).translate(x, y)
+    } else if (hex.obstacle == 'unknownFriendly') {
+        draw.use(hexUnknownFriendly).translate(x, y)
     } else if (hex.obstacle == 'empty') {
         draw.use(hexEmpty).translate(x, y)
     }
 
+
+
 }
 
+//Drop down list
+function algorithmChange(object) {
+    algorithm = object.value
+    localStorage.setItem("algorithm", algorithm)
+    grid.forEach(hex => {
+        resetStats(hex)
+    })
+}
 
