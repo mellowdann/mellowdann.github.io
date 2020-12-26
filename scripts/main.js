@@ -261,38 +261,211 @@ document.getElementById("btnSearch").addEventListener("click", function () {
             calculateKey(hex_end)
             addVertexToQueue(openSet, hex_start)
             //End of initialize
-            window.requestAnimationFrame(computeShortestPath)
+            if (animation) {
+                window.requestAnimationFrame(computeShortestPath)
+            } else {
+                computeShortestPath()
+            }
 
         } else if (algorithm == 'd*') {
-            console.log('Search d*!')
-            var result = d_star_move(hex_start, hex_end)
-            console.log(result)
-            print_grid('end')
+            S = hex_start
+            G = hex_end
+            //all vertices start with tag = 'NEW'
+            d_current = 0
+            r_current = hex_start
+            d_star_insert(G, 0)
+            //process state
+            if (animation) {
+                window.requestAnimationFrame(d_star_process_state)
+            } else {
+                d_star_process_state()
+            }
+        } else if (algorithm == 'd*lite') {
+            S = hex_start
+            G = hex_end
+            k_m = 0
+            last_S = S
+            //all vertices start with rhs = g = infinity
+            G.rhs = 0
+            d_lite_calculateKey(S)
+            d_lite_calculateKey(G)
+            addVertexToQueue(openSet, G)
+            //End of initialize
+            walk.push(S)
+            if (animation) {
+                window.requestAnimationFrame(d_lite_computeShortestPath)
+            } else {
+                d_lite_computeShortestPath()
+            }
         }
     }
 });
 
+var k_m = 0
+var last_S = S
+
+function d_lite_calculateKey(vertex) {
+    vertex.k2 = Math.min(vertex.g, vertex.rhs)
+    vertex.k1 = vertex.k2 + heuristic(S, vertex) + k_m
+}
+
+var d_lite_computeShortestPath = function () {
+    console.log('compute path')
+    if (d_lite_checkLoopConstraints()) {
+        var vertex = openSet.shift() // Get index 0 from the priority queue
+        vertex.openSet = false
+        vertex.closedSet = true
+        var k_old = [vertex.k1, vertex.k2]
+        d_lite_calculateKey(vertex)
+        var k_new = [vertex.k1, vertex.k2]
+        if (d_star_less(k_old, k_new)) {
+            //update vertex in queue
+
+            addVertexToQueue(openSet, vertex) //using k_new
+        } else if (vertex.g > vertex.rhs) {
+            vertex.g = vertex.rhs
+            //update all predecessors
+            var neighbours = filter_neighbours(vertex)
+            for (var i = 0; i < neighbours.length; i++) {
+                if (neighbours[i] != G)
+                    neighbours[i].rhs = Math.min(neighbours[i].rhs, neighbours[i].slowdown + 1 + vertex.g)
+                d_lite_updateVertex(neighbours[i])
+            }
+        } else {
+            var g_old = vertex.g
+            vertex.g = Infinity
+            var neighbours = filter_neighbours(vertex)
+            neighbours.push(vertex)
+            for (var i = 0; i < neighbours.length; i++) {
+                if (neighbours[i].rhs == neighbours[i].slowdown + 1 + g_old) {
+                    if (neighbours[i] != G) {
+                        var min_rhs = Infinity
+                        //get all neighbours of neighbour i
+                        var neigh = filter_neighbours(neighbours[i])
+                        for (var x = 0; x < neigh.length; x++) {
+                            if (neighbours[i].slowdown + 1 + neigh[x].g < min_rhs)
+                                min_rhs = neighbours[i].slowdown + 1 + neigh[x].g
+                        }
+                        neighbours[i].rhs = min_rhs
+                    }
+                    d_lite_updateVertex(vertex)
+                }
+            }
+        }
+        drawHex(vertex)
+        if (animation) {
+            window.requestAnimationFrame(d_lite_computeShortestPath)
+        } else {
+            d_lite_computeShortestPath()
+        }
+    }
+    else {
+        if (animation) {
+            window.requestAnimationFrame(d_lite_main)
+        } else {
+            d_lite_main()
+        }
+    }
+}
+
+var d_lite_main = function () {
+    console.log('main')
+    if (S != G) {
+        log('main', S)
+        var neighbours = filter_neighbours(S)
+        var min_g = Infinity
+        var new_S = null
+        for (var i = 0; i < neighbours.length; i++) {
+            if (min_g > S.slowdown + 1 + neighbours[i].g) {
+                min_g = S.slowdown + 1 + neighbours[i].g
+                new_S = neighbours[i]
+            }
+        }
+        if (new_S.obstacle == 'unknownHostile') {
+            k_m = k_m + heuristic(last_S, S)
+            last_S = S
+            new_S.obstacle = 'knownHostile'
+            new_S.slowdown = 10000
+            drawHex(new_S)
+            var neighbours = filter_neighbours(new_S)
+            var min_rhs = Infinity
+            for (var i = 0; i < neighbours.length; i++) {
+                if (min_rhs > new_S.slowdown + 1 + neighbours[i].g) {
+                    min_rhs = new_S.slowdown + 1 + neighbours[i].g
+                }
+            }
+            new_S.rhs = min_rhs
+            d_lite_updateVertex(new_S)
+            drawHex(new_S)
+            if (animation) {
+                window.requestAnimationFrame(d_lite_computeShortestPath)
+            } else {
+                d_lite_computeShortestPath()
+            }
+        } else {
+            S = new_S
+            if (animation) {
+                window.requestAnimationFrame(d_lite_move)
+            } else {
+                d_lite_move()
+            }
+
+        }
+
+    } else if (S.rhs == Infinity) {
+        console.log('NO-PATH!')
+    } else {
+        //Done
+        var time1 = new Date().getTime()
+        console.log("Time taken: ", time1 - time0)
+        console.log("Path length: ", walk.length)
+        console.log(walk)
+    }
+}
+
+var d_lite_move = function () {
+    console.log('move')
+    S.walk = true
+    walk.push(S)
+    drawHex(S)
+    if (animation) {
+        window.requestAnimationFrame(d_lite_main)
+    } else {
+        d_lite_main()
+    }
+}
+
+function d_lite_checkLoopConstraints() {
+    d_lite_calculateKey(S)
+    if (openSet.length > 0) {
+        if (((openSet[0].k1 < S.k1) || ((openSet[0].k1 == S.k1) && (openSet[0].k2 < S.k2))) || (S.rhs > S.g)) {
+            return true
+        }
+    }
+    return false
+}
+
+function d_lite_updateVertex(vertex) {
+    if (vertex.openSet)
+        removeFromQueue(openSet, vertex)
+    if (vertex.g != vertex.rhs) {
+        d_lite_calculateKey(vertex)
+        addVertexToQueue(openSet, vertex)
+    }
+    drawHex(vertex)
+}
 
 
 var r_current = hex_start // robot position
 var d_current = 0
 
 var movecount = 0
-function d_star_move(S, G) {
-    //all vertices start with tag = 'NEW'
-    d_current = 0
-    r_current = hex_start
-    d_star_insert(G, 0)
-    var val = [0, 0]
-    while (S.tag != 'CLOSED' && val != null) {
-        val = d_star_process_state()
-    }
-    if (S.tag == 'NEW')
-        return 'NO-PATH!'
-    print_grid(movecount)
-    var R = S
-    while (R != G) {
-        movecount++
+var S;
+var R;
+var G;
+
+var d_star_move = function () {
+    if (R != G) {
         var neighbours = filter_neighbours(R)
         var changes = []
         for (var i = 0; i < neighbours.length; i++) {
@@ -307,22 +480,36 @@ function d_star_move(S, G) {
         if (changes.length > 0) {
             for (var i = 0; i < changes.length; i++)
                 val = d_star_modify_cost(changes[i], R, 10000)
-            while (val != null && d_star_less(val, d_star_cost(R)))
-                val = d_star_process_state()
+            if (animation) {
+                window.requestAnimationFrame(d_star_process_state)
+            } else {
+                d_star_process_state()
+            }
+        } else {
+            R.walk = true
+            walk.push(R)
+            drawHex(R)
+            R = R.b
+            if (animation) {
+                window.requestAnimationFrame(d_star_move)
+            } else {
+                d_star_move()
+            }
         }
-        console.log('')
-        print_grid(movecount)
-        log('R', R)
-        R.path = true
+    } else {
+        R.walk = true
+        walk.push(R)
         drawHex(R)
-        R = R.b
+        //Done
+        var time1 = new Date().getTime()
+        console.log("Time taken: ", time1 - time0)
+        console.log("Path length: ", walk.length)
+        console.log(walk)
     }
-    return 'GOAL-REACHED!'
 }
 
 function d_star_modify_cost(X, Y, cval) {
     //c(X,Y) = cval
-    console.log('Modify')
     X.obstacle = 'knownHostile'
     X.slowdown = cval
     if (X.tag == 'CLOSED')
@@ -333,7 +520,9 @@ function d_star_modify_cost(X, Y, cval) {
 var update_list = []
 var countRepeats = 0
 var count = 0;
-function d_star_process_state() {
+var moving = false
+
+var d_star_process_state = function () {
     var X = d_star_min_state()
     if (X == null)
         return null
@@ -354,21 +543,16 @@ function d_star_process_state() {
     var kval = X.k1
     d_star_delete_vertex(X)
     var neighbours = filter_neighbours(X)
-    log(count, X)
     if (kval < X.h) {
-        console.log(count, 'Less than')
         for (var i = 0; i < neighbours.length; i++) {
             var Y = neighbours[i]
             if (Y.tag != 'NEW' && d_star_lessq(d_star_cost(Y), val) && X.h > Y.h + Y.slowdown + 1) {
                 X.b = Y
                 X.h = Y.h + Y.slowdown + 1
-                log('set', Y)
-            } else
-                log('no set', Y)
+            }
         }
     }
     if (kval == X.h) {
-        console.log(count, 'Equal')
         for (var i = 0; i < neighbours.length; i++) {
             var Y = neighbours[i]
             if (Y.tag == 'NEW' ||
@@ -376,34 +560,63 @@ function d_star_process_state() {
                 (Y.b != X && Y.h > X.h + X.slowdown + 1)) {
                 Y.b = X
                 d_star_insert(Y, X.h + X.slowdown + 1)
-                log('set', Y)
-            } else
-                log('no set', Y)
+            }
         }
     } else {
-        console.log(count, 'Not equal')
         for (var i = 0; i < neighbours.length; i++) {
             var Y = neighbours[i]
             if (Y.tag == 'NEW' ||
                 (Y.b == X && Y.h != X.h + X.slowdown + 1)) {
                 Y.b = X
                 d_star_insert(Y, X.h + X.slowdown + 1)
-                log('set1', Y)
             } else if (Y.b != X && Y.h > X.h + X.slowdown + 1 && X.tag == 'CLOSED') {
                 Y.b = X
                 d_star_insert(Y, X.h + X.slowdown + 1)
                 d_star_insert(X, X.h)
-                log('set2', Y)
             } else if (Y.b != X && X.h > Y.h + Y.slowdown + 1 && Y.tag == 'CLOSED' && d_star_less(val, d_star_cost(Y))) {
                 d_star_insert(Y, Y.h)
-                log('set3', Y)
-            } else
-                log('no set', Y)
+            }
         }
     }
     count++
-    console.log('')
-    return d_star_min_val()
+    var val = d_star_min_val()
+    if (moving) {//recalculating path
+        if (val != null && d_star_less(val, d_star_cost(R))) {
+            if (animation) {
+                window.requestAnimationFrame(d_star_process_state)
+            } else {
+                d_star_process_state()
+            }
+        } else {
+            R.walk = true
+            walk.push(R)
+            drawHex(R)
+            R = R.b
+            if (animation) {
+                window.requestAnimationFrame(d_star_move)
+            } else {
+                d_star_move()
+            }
+        }
+    } else {//initial path finding
+        if (S.tag != 'CLOSED' && val != null) {
+            if (animation) {
+                window.requestAnimationFrame(d_star_process_state)
+            } else {
+                d_star_process_state()
+            }
+        } else if (S.tag == 'NEW') {
+            console.log('NO-PATH!')
+        } else {
+            R = S
+            moving = true
+            if (animation) {
+                window.requestAnimationFrame(d_star_move)
+            } else {
+                d_star_move()
+            }
+        }
+    }
 }
 
 function d_star_gval(X, Y) {
@@ -527,9 +740,9 @@ function print_grid(name) {
 
 function log(name, vertex) {
     if (vertex.b != null)
-        console.log('...' + name, "(" + vertex.x + ',' + vertex.y + ")", 'fb:', vertex.fb, 'f:', vertex.f, 'k1:', vertex.k1, 'h:', vertex.h, 'tag:', vertex.tag, 'b:', "(" + vertex.b.x + ',' + vertex.b.y + ")")
+        console.log('...' + name, "(" + vertex.x + ',' + vertex.y + ")", 'g:', vertex.g, 'rhs:', vertex.rhs)
     else
-        console.log('...' + name, "(" + vertex.x + ',' + vertex.y + ")", 'fb:', vertex.fb, 'f:', vertex.f, 'k1:', vertex.k1, 'h:', vertex.h, 'tag:', vertex.tag, 'b:', "-")
+        console.log('...' + name, "(" + vertex.x + ',' + vertex.y + ")", 'g:', vertex.g, 'rhs:', vertex.rhs)
 }
 
 function log_openSet(set) {
@@ -559,7 +772,11 @@ var backtrack_path = function () {
         current.path = true
         drawHex(current)
     }
-    window.requestAnimationFrame(follow_path)
+    if (animation) {
+        window.requestAnimationFrame(follow_path)
+    } else {
+        follow_path()
+    }
 }
 
 
@@ -638,11 +855,18 @@ var computeShortestPath = function () {
             //update self
             updateVertex(vertex)
         }
-        window.requestAnimationFrame(computeShortestPath)
+        if (animation) {
+            window.requestAnimationFrame(computeShortestPath)
+        } else {
+            computeShortestPath()
+        }
     }
     else {
-        //print_grid('Compute Shorest Path - end')
-        window.requestAnimationFrame(backtrack_path)
+        if (animation) {
+            window.requestAnimationFrame(backtrack_path)
+        } else {
+            backtrack_path()
+        }
     }
 }
 
@@ -673,7 +897,6 @@ function addVertexToQueue(queue, vertex) {
     queue.push(vertex)
     vertex.openSet = true
     vertex.closedSet = false
-
 }
 
 //lpa* - remove from priority queue
@@ -683,6 +906,7 @@ function removeFromQueue(queue, vertex) {
             if (queue[i].y == vertex.y) {
                 queue.splice(i, 1);
                 vertex.openSet = false
+                vertex.closedSet = true
             }
         }
     }
@@ -739,7 +963,11 @@ var follow_path = function () {
             for (var i = 0; i < neighbours.length; i++) {
                 updateVertex(neighbours[i])
             }
-            window.requestAnimationFrame(computeShortestPath)
+            if (animation) {
+                window.requestAnimationFrame(computeShortestPath)
+            } else {
+                computeShortestPath()
+            }
         } else if (algorithm == 'd*') {
             console.log('before')
             log_openSet(openSet)
@@ -905,6 +1133,8 @@ function resetStats(hex) {
         hex.h = heuristic(hex, hex_end)
     } else if (algorithm == 'dijkstra') {
         hex.h = 0
+    } else if (algorithm == 'd*' || algorithm == 'd*lite') {
+        hex.g = Infinity
     }
 }
 
