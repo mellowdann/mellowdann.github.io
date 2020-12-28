@@ -5,9 +5,22 @@ var animation = true
 var searched = false
 var currentObstacle = 'wall'
 var currentSlowdown = 0
+const testUrl = 'https://raw.githubusercontent.com/mellowdann/mellowdann.github.io/master/test-configurations.txt'
+var testList = null
+var testIndex = -1
+
+//get the gridWidth and gridSize from the saved grid
+if (localStorage.getItem("load") == "true") {
+    var numHexes = localStorage.getItem("grid").length
+    gridWidth = Math.sqrt(numHexes)
+} else {
+    gridWidth = 40
+}
+//gridSize: 10 or 20 hexes = size20; 30 hexes = size15; 40 or 50 hexes = size10;
+gridSize = gridWidth < 30 ? 20 : gridWidth == 30 ? 15 : 10
 
 const Hex = Honeycomb.extendHex({
-    size: 20,//default 10
+    size: gridSize,//default 10
     path: false,
     obstacle: 'empty',
     slowdown: 0,
@@ -74,10 +87,12 @@ function getColourHex(fill, border = '#999', width = 1) {
         .stroke({ width: width, color: border })
 }
 
-gridsize = 20
 
-// grid = gridsize x gridsize
-grid = Grid.rectangle({ width: gridsize, height: gridsize })
+
+
+
+// grid = gridWidth x gridWidth
+grid = Grid.rectangle({ width: gridWidth, height: gridWidth })
 
 
 grid.forEach(hex => {
@@ -86,10 +101,11 @@ grid.forEach(hex => {
     draw.use(hexEmpty).translate(x, y)
 })
 
+readListOfTests()
 
 //Start and End Hexes
 hex_start = grid.get([0, 0])
-hex_end = grid.get([gridsize - 1, gridsize - 1])
+hex_end = grid.get([gridWidth - 1, gridWidth - 1])
 hex_start.start = true
 hex_start.searched = true
 hex_end.end = true
@@ -185,6 +201,7 @@ function saveState() {
     }
     localStorage.setItem("grid", hexList)
     localStorage.setItem("load", "true")
+    console.log(hexList)
 }
 
 function loadState(hexList) {
@@ -291,6 +308,7 @@ document.getElementById("btnSearch").addEventListener("click", function () {
             d_lite_calculateKey(G)
             addVertexToQueue(openSet, G)
             //End of initialize
+            path.push(S)
             walk.push(S)
             if (animation) {
                 window.requestAnimationFrame(d_lite_computeShortestPath)
@@ -303,6 +321,7 @@ document.getElementById("btnSearch").addEventListener("click", function () {
 
 var k_m = 0
 var last_S = S
+var vertexExpansions = 0
 
 function d_lite_calculateKey(vertex) {
     vertex.k2 = Math.min(vertex.g, vertex.rhs)
@@ -310,7 +329,6 @@ function d_lite_calculateKey(vertex) {
 }
 
 var d_lite_computeShortestPath = function () {
-    console.log('compute path')
     if (d_lite_checkLoopConstraints()) {
         var vertex = openSet.shift() // Get index 0 from the priority queue
         vertex.openSet = false
@@ -320,9 +338,9 @@ var d_lite_computeShortestPath = function () {
         var k_new = [vertex.k1, vertex.k2]
         if (d_star_less(k_old, k_new)) {
             //update vertex in queue
-
             addVertexToQueue(openSet, vertex) //using k_new
         } else if (vertex.g > vertex.rhs) {
+            vertexExpansions++
             vertex.g = vertex.rhs
             //update all predecessors
             var neighbours = filter_neighbours(vertex)
@@ -332,6 +350,7 @@ var d_lite_computeShortestPath = function () {
                 d_lite_updateVertex(neighbours[i])
             }
         } else {
+            vertexExpansions++
             var g_old = vertex.g
             vertex.g = Infinity
             var neighbours = filter_neighbours(vertex)
@@ -369,49 +388,62 @@ var d_lite_computeShortestPath = function () {
 }
 
 var d_lite_main = function () {
-    console.log('main')
+    var changes = []
     if (S != G) {
-        log('main', S)
+        if (S.x == 3 && S.y == 2) {
+            var stop = true
+        }
         var neighbours = filter_neighbours(S)
-        var min_g = Infinity
-        var new_S = null
         for (var i = 0; i < neighbours.length; i++) {
-            if (min_g > S.slowdown + 1 + neighbours[i].g) {
-                min_g = S.slowdown + 1 + neighbours[i].g
-                new_S = neighbours[i]
+            if (neighbours[i].obstacle == 'unknownHostile') {
+                changes.push(neighbours[i])
             }
         }
-        if (new_S.obstacle == 'unknownHostile') {
+        if (changes.length > 0) {
+            path = []
+            path.push(S)
             k_m = k_m + heuristic(last_S, S)
             last_S = S
-            new_S.obstacle = 'knownHostile'
-            new_S.slowdown = 10000
-            drawHex(new_S)
-            var neighbours = filter_neighbours(new_S)
-            var min_rhs = Infinity
-            for (var i = 0; i < neighbours.length; i++) {
-                if (min_rhs > new_S.slowdown + 1 + neighbours[i].g) {
-                    min_rhs = new_S.slowdown + 1 + neighbours[i].g
+            for (var i = 0; i < changes.length; i++) {
+                changes[i].obstacle = 'knownHostile'
+                changes[i].slowdown = 10000
+                var neigh = filter_neighbours(changes[i])
+                var min_rhs = Infinity
+                for (var x = 0; x < neigh.length; x++) {
+                    if (min_rhs > changes[i].slowdown + 1 + neigh[x].g) {
+                        min_rhs = changes[i].slowdown + 1 + neigh[x].g
+                    }
                 }
+                changes[i].rhs = min_rhs
+                d_lite_updateVertex(changes[i])
+                drawHex(changes[i])
+                log('changed', changes[i])
             }
-            new_S.rhs = min_rhs
-            d_lite_updateVertex(new_S)
-            drawHex(new_S)
             if (animation) {
                 window.requestAnimationFrame(d_lite_computeShortestPath)
             } else {
                 d_lite_computeShortestPath()
             }
         } else {
-            S = new_S
-            if (animation) {
-                window.requestAnimationFrame(d_lite_move)
-            } else {
-                d_lite_move()
+            var min_g = Infinity
+            var new_S = null
+            for (var i = 0; i < neighbours.length; i++) {
+                if (min_g > neighbours[i].g && !path.includes(neighbours[i])) {
+                    min_g = neighbours[i].g
+                    new_S = neighbours[i]
+                }
             }
-
+            S = new_S
+            S.walk = true
+            walk.push(S)
+            path.push(S)
+            drawHex(S)
+            if (animation) {
+                window.requestAnimationFrame(d_lite_main)
+            } else {
+                d_lite_main()
+            }
         }
-
     } else if (S.rhs == Infinity) {
         console.log('NO-PATH!')
     } else {
@@ -420,18 +452,6 @@ var d_lite_main = function () {
         console.log("Time taken: ", time1 - time0)
         console.log("Path length: ", walk.length)
         console.log(walk)
-    }
-}
-
-var d_lite_move = function () {
-    console.log('move')
-    S.walk = true
-    walk.push(S)
-    drawHex(S)
-    if (animation) {
-        window.requestAnimationFrame(d_lite_main)
-    } else {
-        d_lite_main()
     }
 }
 
@@ -526,18 +546,6 @@ var d_star_process_state = function () {
     var X = d_star_min_state()
     if (X == null)
         return null
-    //exit endless loop
-    if (count > 5) {
-        if (update_list[count - 1] == X) {
-            countRepeats++
-            if (countRepeats > 5) {
-                // openSet.pop()
-                // return null
-                var stop = true
-            }
-        } else
-            countRepeats = 0
-    }
     update_list.push(X)
     var val = [X.f, X.k1]
     var kval = X.k1
@@ -1190,19 +1198,21 @@ var svg = document.querySelectorAll("svg")[0];
 
 
 svg.addEventListener('mousedown', ({ offsetX, offsetY }) => {
-    const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
-    mousedown_hex = grid.get(hexCoordinates)
-    if (mousedown_hex != undefined) {
-        mousedown = true
-        if (mousedown_hex.start) {
-            type = 'start'
-        } else if (mousedown_hex.end) {
-            type = 'end'
-        } else {
-            type = currentObstacle
-            mousedown_hex.obstacle = currentObstacle
-            mousedown_hex.slowdown = currentSlowdown
-            drawHex(mousedown_hex)
+    if (!searched) {
+        const hexCoordinates = Grid.pointToHex(offsetX, offsetY)
+        mousedown_hex = grid.get(hexCoordinates)
+        if (mousedown_hex != undefined) {
+            mousedown = true
+            if (mousedown_hex.start) {
+                type = 'start'
+            } else if (mousedown_hex.end) {
+                type = 'end'
+            } else {
+                type = currentObstacle
+                mousedown_hex.obstacle = currentObstacle
+                mousedown_hex.slowdown = currentSlowdown
+                drawHex(mousedown_hex)
+            }
         }
     }
 })
@@ -1320,5 +1330,31 @@ function algorithmChange(object) {
     grid.forEach(hex => {
         resetStats(hex)
     })
+}
+
+function testChange(object) {
+    testIndex = object.value
+}
+
+function loadClicked() {
+    if (testIndex != -1) {
+        localStorage.setItem("load", "true")
+        localStorage.setItem("grid", testList[testIndex])
+        location.reload()
+    } else {
+        alert('Please select a test from the drop down list')
+    }
+
+}
+
+async function readListOfTests() {
+    try {
+        const response = await fetch(testUrl);
+        const data = await response.text();
+        testList = data.match(/[^\r\n]+/g);
+        console.log('readListOfTests', testList);
+    } catch (error) {
+        console.error(error);
+    }
 }
 
