@@ -5,17 +5,29 @@ var animation = true
 var searched = false
 var currentObstacle = 'wall'
 var currentSlowdown = 0
+//url used to load the saved map configurations
 const testUrl = 'https://raw.githubusercontent.com/mellowdann/mellowdann.github.io/master/test-configurations.txt'
 var testList = null
 var testIndex = -1
+var sizeIndex = -1
+var sizes = [10, 20, 30, 40, 50]
+var modal = document.getElementById("resultsAlertBox");
 
 //get the gridWidth and gridSize from the saved grid
 if (localStorage.getItem("load") == "true") {
     var numHexes = localStorage.getItem("grid").length
     gridWidth = Math.sqrt(numHexes)
 } else {
-    gridWidth = 40
+    var loadSize = localStorage.getItem("size")
+    if (loadSize != null) {
+        gridWidth = loadSize
+    }
+    else
+        gridWidth = 20
 }
+
+var sizeIndex = sizes.indexOf(parseInt(gridWidth))
+document.getElementById('ddSize').value = sizeIndex
 //gridSize: 10 or 20 hexes = size20; 30 hexes = size15; 40 or 50 hexes = size10;
 gridSize = gridWidth < 30 ? 20 : gridWidth == 30 ? 15 : 10
 
@@ -23,7 +35,7 @@ const Hex = Honeycomb.extendHex({
     size: gridSize,//default 10
     path: false,
     obstacle: 'empty',
-    slowdown: 0,
+    cost: 0,
     start: false,
     end: false,
     level: 0,
@@ -45,10 +57,9 @@ const Hex = Honeycomb.extendHex({
 const Grid = Honeycomb.defineGrid(Hex)
 // get the corners of a hex (they're the same for all hexes created with the same Hex factory)
 corners = Hex().corners()
-// an SVG symbol can be reused
-const hexStart = getColourHex('green')
+const hexStart = getColourHex('yellow')
 const hexEnd = getColourHex('green')
-const hexWalk = getColourHex('green')
+const hexWalk = getColourHex('yellow')
 
 const hexWall = getColourHex('black')
 
@@ -86,8 +97,6 @@ function getColourHex(fill, border = '#999', width = 1) {
         .fill(fill)
         .stroke({ width: width, color: border })
 }
-
-
 
 
 
@@ -137,14 +146,15 @@ if (localStorage.getItem("load") == "true") {
     loadState(localStorage.getItem("grid"))
 }
 if (localStorage.getItem("loadOptions") == "true") {
-    console.log("Algorithm: ", localStorage.getItem("algorithm"))
-    console.log("obstacle: ", localStorage.getItem("obstacle"))
-    console.log("animation: ", localStorage.getItem("animation"))
     loadOptions(localStorage.getItem("algorithm"),
         localStorage.getItem("obstacle"),
         localStorage.getItem("animation"))
 } else {
+    localStorage.setItem("algorithm", "A*")
+    localStorage.setItem("obstacle", "wall")
+    localStorage.setItem("animation", "true")
     localStorage.setItem("loadOptions", "true")
+
 }
 
 grid.forEach(hex => {
@@ -223,18 +233,18 @@ function loadState(hexList) {
             grid[i].obstacle = 'empty'
         } else if (hexArray[i] == "1") {
             grid[i].obstacle = 'wall'
-            grid[i].slowdown = 10000
+            grid[i].cost = 10000
         } else if (hexArray[i] == "2") {
             grid[i].obstacle = 'sand'
-            grid[i].slowdown = 1
+            grid[i].cost = 1
         } else if (hexArray[i] == "3") {
             grid[i].obstacle = 'water'
-            grid[i].slowdown = 3
+            grid[i].cost = 3
         } else if (hexArray[i] == "4") {
             grid[i].obstacle = 'unknownHostile'
         } else if (hexArray[i] == "5") {
             grid[i].obstacle = 'knownHostile'
-            grid[i].slowdown = 10000
+            grid[i].cost = 10000
         } else if (hexArray[i] == "6") {
             grid[i].obstacle = 'unknownFriendly'
         } else if (hexArray[i] == "7") {
@@ -245,14 +255,15 @@ function loadState(hexList) {
 }
 
 document.getElementById("btnSearch").addEventListener("click", function () {
-    if (!searched) {
+    if (!searched && algorithm != "select") {
         saveState()
         searched = true
         time0 = new Date().getTime()
+        time1 = time0
         pathlength = 0
         hex_end.obstacle = 'empty'
         hex_start.obstacle = 'empty'
-        if (algorithm == 'a*') {
+        if (algorithm == 'A*') {
             //Astar
             openSet.push(hex_start)
             hex_start.openSet = true
@@ -261,7 +272,7 @@ document.getElementById("btnSearch").addEventListener("click", function () {
             } else {
                 a_star()
             }
-        } else if (algorithm == 'dijkstra') {
+        } else if (algorithm == 'Dijkstra') {
             //Dijkstra
             openSet.push(hex_start)
             hex_start.openSet = true
@@ -270,21 +281,7 @@ document.getElementById("btnSearch").addEventListener("click", function () {
             } else {
                 a_star()
             }
-        } else if (algorithm == "lpa*") {
-            //Initialize
-            //all vertices g and rhs are = infinity from earlier loop
-            hex_start.rhs = 0
-            calculateKey(hex_start)
-            calculateKey(hex_end)
-            addVertexToQueue(openSet, hex_start)
-            //End of initialize
-            if (animation) {
-                window.requestAnimationFrame(computeShortestPath)
-            } else {
-                computeShortestPath()
-            }
-
-        } else if (algorithm == 'd*') {
+        } else if (algorithm == 'Focused D*') {
             S = hex_start
             G = hex_end
             //all vertices start with tag = 'NEW'
@@ -293,11 +290,11 @@ document.getElementById("btnSearch").addEventListener("click", function () {
             d_star_insert(G, 0)
             //process state
             if (animation) {
-                window.requestAnimationFrame(d_star_process_state)
+                window.requestAnimationFrame(d_star_process_node)
             } else {
-                d_star_process_state()
+                d_star_process_node()
             }
-        } else if (algorithm == 'd*lite') {
+        } else if (algorithm == 'D* Lite') {
             S = hex_start
             G = hex_end
             k_m = 0
@@ -306,7 +303,7 @@ document.getElementById("btnSearch").addEventListener("click", function () {
             G.rhs = 0
             d_lite_calculateKey(S)
             d_lite_calculateKey(G)
-            addVertexToQueue(openSet, G)
+            addNodeToQueue(openSet, G)
             //End of initialize
             path.push(S)
             walk.push(S)
@@ -321,57 +318,56 @@ document.getElementById("btnSearch").addEventListener("click", function () {
 
 var k_m = 0
 var last_S = S
-var vertexExpansions = 0
+var nodeExpansionCount = 0
 
-function d_lite_calculateKey(vertex) {
-    vertex.k2 = Math.min(vertex.g, vertex.rhs)
-    vertex.k1 = vertex.k2 + heuristic(S, vertex) + k_m
+function d_lite_calculateKey(n) {
+    n.k2 = Math.min(n.g, n.rhs)
+    n.k1 = n.k2 + heuristic(S, n) + k_m
 }
 
 var d_lite_computeShortestPath = function () {
     if (d_lite_checkLoopConstraints()) {
-        var vertex = openSet.shift() // Get index 0 from the priority queue
-        vertex.openSet = false
-        vertex.closedSet = true
-        var k_old = [vertex.k1, vertex.k2]
-        d_lite_calculateKey(vertex)
-        var k_new = [vertex.k1, vertex.k2]
+        var n = openSet.shift() // Get index 0 from the priority queue
+        nodeExpansionCount++
+        n.openSet = false
+        n.closedSet = true
+        var k_old = [n.k1, n.k2]
+        d_lite_calculateKey(n)
+        var k_new = [n.k1, n.k2]
         if (d_star_less(k_old, k_new)) {
-            //update vertex in queue
-            addVertexToQueue(openSet, vertex) //using k_new
-        } else if (vertex.g > vertex.rhs) {
-            vertexExpansions++
-            vertex.g = vertex.rhs
+            //update n in queue
+            addNodeToQueue(openSet, n) //using k_new
+        } else if (n.g > n.rhs) {
+            n.g = n.rhs
             //update all predecessors
-            var neighbours = filter_neighbours(vertex)
+            var neighbours = filter_neighbours(n)
             for (var i = 0; i < neighbours.length; i++) {
                 if (neighbours[i] != G)
-                    neighbours[i].rhs = Math.min(neighbours[i].rhs, neighbours[i].slowdown + 1 + vertex.g)
-                d_lite_updateVertex(neighbours[i])
+                    neighbours[i].rhs = Math.min(neighbours[i].rhs, neighbours[i].cost + 1 + n.g)
+                d_lite_updateNode(neighbours[i])
             }
         } else {
-            vertexExpansions++
-            var g_old = vertex.g
-            vertex.g = Infinity
-            var neighbours = filter_neighbours(vertex)
-            neighbours.push(vertex)
+            var g_old = n.g
+            n.g = Infinity
+            var neighbours = filter_neighbours(n)
+            neighbours.push(n)
             for (var i = 0; i < neighbours.length; i++) {
-                if (neighbours[i].rhs == neighbours[i].slowdown + 1 + g_old) {
+                if (neighbours[i].rhs == neighbours[i].cost + 1 + g_old) {
                     if (neighbours[i] != G) {
                         var min_rhs = Infinity
                         //get all neighbours of neighbour i
                         var neigh = filter_neighbours(neighbours[i])
                         for (var x = 0; x < neigh.length; x++) {
-                            if (neighbours[i].slowdown + 1 + neigh[x].g < min_rhs)
-                                min_rhs = neighbours[i].slowdown + 1 + neigh[x].g
+                            if (neighbours[i].cost + 1 + neigh[x].g < min_rhs)
+                                min_rhs = neighbours[i].cost + 1 + neigh[x].g
                         }
                         neighbours[i].rhs = min_rhs
                     }
-                    d_lite_updateVertex(vertex)
                 }
+                d_lite_updateNode(n)
             }
         }
-        drawHex(vertex)
+        drawHex(n)
         if (animation) {
             window.requestAnimationFrame(d_lite_computeShortestPath)
         } else {
@@ -390,8 +386,10 @@ var d_lite_computeShortestPath = function () {
 var d_lite_main = function () {
     var changes = []
     if (S != G) {
-        if (S.x == 3 && S.y == 2) {
-            var stop = true
+        if (S.rhs == Infinity) {
+            //no path found
+            displayNoResults()
+            return
         }
         var neighbours = filter_neighbours(S)
         for (var i = 0; i < neighbours.length; i++) {
@@ -400,24 +398,20 @@ var d_lite_main = function () {
             }
         }
         if (changes.length > 0) {
+            //save time until first change
+            if (time0 == time1)
+                time1 = new Date().getTime()
             path = []
             path.push(S)
             k_m = k_m + heuristic(last_S, S)
             last_S = S
             for (var i = 0; i < changes.length; i++) {
                 changes[i].obstacle = 'knownHostile'
-                changes[i].slowdown = 10000
-                var neigh = filter_neighbours(changes[i])
-                var min_rhs = Infinity
-                for (var x = 0; x < neigh.length; x++) {
-                    if (min_rhs > changes[i].slowdown + 1 + neigh[x].g) {
-                        min_rhs = changes[i].slowdown + 1 + neigh[x].g
-                    }
-                }
-                changes[i].rhs = min_rhs
-                d_lite_updateVertex(changes[i])
+                changes[i].cost = 10000
+                changes[i].rhs = Infinity
+                changes[i].g = 10000
+                d_lite_updateNode(changes[i])
                 drawHex(changes[i])
-                log('changed', changes[i])
             }
             if (animation) {
                 window.requestAnimationFrame(d_lite_computeShortestPath)
@@ -434,6 +428,11 @@ var d_lite_main = function () {
                 }
             }
             S = new_S
+            if (S == null) {
+                //no path found
+                displayNoResults()
+                return
+            }
             S.walk = true
             walk.push(S)
             path.push(S)
@@ -444,14 +443,9 @@ var d_lite_main = function () {
                 d_lite_main()
             }
         }
-    } else if (S.rhs == Infinity) {
-        console.log('NO-PATH!')
     } else {
         //Done
-        var time1 = new Date().getTime()
-        console.log("Time taken: ", time1 - time0)
-        console.log("Path length: ", walk.length)
-        console.log(walk)
+        displayResults()
     }
 }
 
@@ -465,14 +459,14 @@ function d_lite_checkLoopConstraints() {
     return false
 }
 
-function d_lite_updateVertex(vertex) {
-    if (vertex.openSet)
-        removeFromQueue(openSet, vertex)
-    if (vertex.g != vertex.rhs) {
-        d_lite_calculateKey(vertex)
-        addVertexToQueue(openSet, vertex)
+function d_lite_updateNode(n) {
+    if (n.openSet)
+        removeFromQueue(openSet, n)
+    if (n.g != n.rhs) {
+        d_lite_calculateKey(n)
+        addNodeToQueue(openSet, n)
     }
-    drawHex(vertex)
+    drawHex(n)
 }
 
 
@@ -489,23 +483,30 @@ var d_star_move = function () {
         var neighbours = filter_neighbours(R)
         var changes = []
         for (var i = 0; i < neighbours.length; i++) {
-            var Y = neighbours[i]
-            if (Y.obstacle == 'unknownHostile')
-                changes.push(Y)
+            var m = neighbours[i]
+            if (m.obstacle == 'unknownHostile')
+                changes.push(m)
         }
         if (r_current != R) {
             d_current = d_current + d_star_gval(R, r_current)
             r_current = R
         }
         if (changes.length > 0) {
+            if (time0 == time1)
+                time1 = new Date().getTime()
             for (var i = 0; i < changes.length; i++)
-                val = d_star_modify_cost(changes[i], R, 10000)
+                d_star_modify_cost(changes[i], 10000)
             if (animation) {
-                window.requestAnimationFrame(d_star_process_state)
+                window.requestAnimationFrame(d_star_process_node)
             } else {
-                d_star_process_state()
+                d_star_process_node()
             }
         } else {
+            if (R.obstacle == 'knownHostile') {
+                //no path found
+                displayNoResults()
+                return
+            }
             R.walk = true
             walk.push(R)
             drawHex(R)
@@ -521,20 +522,16 @@ var d_star_move = function () {
         walk.push(R)
         drawHex(R)
         //Done
-        var time1 = new Date().getTime()
-        console.log("Time taken: ", time1 - time0)
-        console.log("Path length: ", walk.length)
-        console.log(walk)
+        displayResults()
     }
 }
 
-function d_star_modify_cost(X, Y, cval) {
-    //c(X,Y) = cval
-    X.obstacle = 'knownHostile'
-    X.slowdown = cval
-    if (X.tag == 'CLOSED')
-        d_star_insert(X, X.h)
-    return d_star_min_val()
+function d_star_modify_cost(n, newCost) {
+    //c(n,m) = newCost
+    n.obstacle = 'knownHostile'
+    n.cost = newCost
+    if (n.tag == 'CLOSED')
+        d_star_insert(n, n.h)
 }
 
 var update_list = []
@@ -542,58 +539,59 @@ var countRepeats = 0
 var count = 0;
 var moving = false
 
-var d_star_process_state = function () {
-    var X = d_star_min_state()
-    if (X == null)
+var d_star_process_node = function () {
+    var n = d_star_min_node()
+    if (n == null)
         return null
-    update_list.push(X)
-    var val = [X.f, X.k1]
-    var kval = X.k1
-    d_star_delete_vertex(X)
-    var neighbours = filter_neighbours(X)
-    if (kval < X.h) {
+    nodeExpansionCount++
+    update_list.push(n)
+    var val = [n.f, n.k1]
+    var kval = n.k1
+    d_star_delete_node(n)
+    var neighbours = filter_neighbours(n)
+    if (kval < n.h) {
         for (var i = 0; i < neighbours.length; i++) {
-            var Y = neighbours[i]
-            if (Y.tag != 'NEW' && d_star_lessq(d_star_cost(Y), val) && X.h > Y.h + Y.slowdown + 1) {
-                X.b = Y
-                X.h = Y.h + Y.slowdown + 1
+            var m = neighbours[i]
+            if (m.tag != 'NEW' && d_star_lessq(d_star_cost(m), val) && n.h > m.h + m.cost + 1) {
+                n.b = m
+                n.h = m.h + m.cost + 1
             }
         }
     }
-    if (kval == X.h) {
+    if (kval == n.h) {
         for (var i = 0; i < neighbours.length; i++) {
-            var Y = neighbours[i]
-            if (Y.tag == 'NEW' ||
-                (Y.b == X && Y.h != X.h + X.slowdown + 1) ||
-                (Y.b != X && Y.h > X.h + X.slowdown + 1)) {
-                Y.b = X
-                d_star_insert(Y, X.h + X.slowdown + 1)
+            var m = neighbours[i]
+            if (m.tag == 'NEW' ||
+                (m.b == n && m.h != n.h + n.cost + 1) ||
+                (m.b != n && m.h > n.h + n.cost + 1)) {
+                m.b = n
+                d_star_insert(m, n.h + n.cost + 1)
             }
         }
     } else {
         for (var i = 0; i < neighbours.length; i++) {
-            var Y = neighbours[i]
-            if (Y.tag == 'NEW' ||
-                (Y.b == X && Y.h != X.h + X.slowdown + 1)) {
-                Y.b = X
-                d_star_insert(Y, X.h + X.slowdown + 1)
-            } else if (Y.b != X && Y.h > X.h + X.slowdown + 1 && X.tag == 'CLOSED') {
-                Y.b = X
-                d_star_insert(Y, X.h + X.slowdown + 1)
-                d_star_insert(X, X.h)
-            } else if (Y.b != X && X.h > Y.h + Y.slowdown + 1 && Y.tag == 'CLOSED' && d_star_less(val, d_star_cost(Y))) {
-                d_star_insert(Y, Y.h)
+            var m = neighbours[i]
+            if (m.tag == 'NEW' ||
+                (m.b == n && m.h != n.h + n.cost + 1)) {
+                m.b = n
+                d_star_insert(m, n.h + n.cost + 1)
+            } else if (m.b != n && m.h > n.h + n.cost + 1 && n.tag == 'CLOSED') {
+                m.b = n
+                d_star_insert(m, n.h + n.cost + 1)
+                d_star_insert(n, n.h)
+            } else if (m.b != n && n.h > m.h + m.cost + 1 && m.tag == 'CLOSED' && d_star_less(val, d_star_cost(m))) {
+                d_star_insert(m, m.h)
             }
         }
     }
     count++
-    var val = d_star_min_val()
+    var val = d_star_min_value()
     if (moving) {//recalculating path
         if (val != null && d_star_less(val, d_star_cost(R))) {
             if (animation) {
-                window.requestAnimationFrame(d_star_process_state)
+                window.requestAnimationFrame(d_star_process_node)
             } else {
-                d_star_process_state()
+                d_star_process_node()
             }
         } else {
             R.walk = true
@@ -609,12 +607,13 @@ var d_star_process_state = function () {
     } else {//initial path finding
         if (S.tag != 'CLOSED' && val != null) {
             if (animation) {
-                window.requestAnimationFrame(d_star_process_state)
+                window.requestAnimationFrame(d_star_process_node)
             } else {
-                d_star_process_state()
+                d_star_process_node()
             }
         } else if (S.tag == 'NEW') {
-            console.log('NO-PATH!')
+            //no path found
+            displayNoResults()
         } else {
             R = S
             moving = true
@@ -627,55 +626,55 @@ var d_star_process_state = function () {
     }
 }
 
-function d_star_gval(X, Y) {
-    return heuristic(X, Y)
+function d_star_gval(n1, n2) {
+    return heuristic(n1, n2)
 }
 
-function d_star_min_val() {
-    var X = d_star_min_state()
-    if (X == null)
+function d_star_min_value() {
+    var n = d_star_min_node()
+    if (n == null)
         return null
     else
-        return [X.f, X.k1]
+        return [n.f, n.k1]
 }
 
-function d_star_min_state() {
-    var X = d_star_get_state()
-    while (X != null) {
-        if (X.robot != r_current) {
-            var h_new = X.h
-            X.h = X.k1
-            d_star_delete_vertex(X)
-            d_star_insert(X, h_new)
+function d_star_min_node() {
+    var n = d_star_get_node()
+    while (n != null) {
+        if (n.robot != r_current) {
+            var h_new = n.h
+            n.h = n.k1
+            d_star_delete_node(n)
+            d_star_insert(n, h_new)
         } else
-            return X
-        X = d_star_get_state()
+            return n
+        n = d_star_get_node()
     }
     return null
 }
 
-function d_star_insert(X, h_new) {
-    if (X.tag == 'NEW') {
-        X.k1 = h_new
+function d_star_insert(n, h_new) {
+    if (n.tag == 'NEW') {
+        n.k1 = h_new
     } else {
-        if (X.tag == 'OPEN') {
-            X.k1 = Math.min(X.k1, h_new)
-            d_star_delete_vertex(X)
+        if (n.tag == 'OPEN') {
+            n.k1 = Math.min(n.k1, h_new)
+            d_star_delete_node(n)
         } else {
-            X.k1 = Math.min(X.k1, h_new)
+            n.k1 = Math.min(n.k1, h_new)
         }
     }
-    X.h = h_new
-    X.robot = r_current
-    X.f = X.k1 + d_star_gval(X, r_current)
-    X.fb = X.f + d_current
-    d_star_delete_vertex(X)
-    d_star_put_vertex(X)
+    n.h = h_new
+    n.robot = r_current
+    n.f = n.k1 + d_star_gval(n, r_current)
+    n.fb = n.f + d_current
+    d_star_delete_node(n)
+    d_star_put_vertex(n)
 }
 
-function d_star_cost(X) {
-    var f = X.h + d_star_gval(X, r_current)
-    return [f, X.h]
+function d_star_cost(n) {
+    var f = n.h + d_star_gval(n, r_current)
+    return [f, n.h]
 }
 
 function d_star_lessq(a, b) {
@@ -696,48 +695,48 @@ function d_star_less(a, b) {
     return false
 }
 
-function d_star_get_state() {
+function d_star_get_node() {
     return openSet[0]
 }
 
-//d* - remove vertex from open list and set vertex.tag = closed
-function d_star_delete_vertex(vertex) {
-    vertex.tag = "CLOSED"
-    vertex.openSet = false
-    vertex.closedSet = true
+//d* - remove n from open list and set n.tag = closed
+function d_star_delete_node(n) {
+    n.tag = "CLOSED"
+    n.openSet = false
+    n.closedSet = true
     var len = openSet.length;
-    //remove vertex from the queue, if it exists
+    //remove n from the queue, if it exists
     for (var i = len - 1; i >= 0; i--) {
-        if (openSet[i].x == vertex.x) {
-            if (openSet[i].y == vertex.y) {
+        if (openSet[i].x == n.x) {
+            if (openSet[i].y == n.y) {
                 openSet.splice(i, 1);
             }
         }
     }
-    drawHex(vertex)
+    drawHex(n)
 }
 
-//d* - set vertex.tag = Open and insert vertex on open list according to the key
-function d_star_put_vertex(vertex) {
+//d* - set n.tag = Open and insert n on open list according to the key
+function d_star_put_vertex(n) {
     len = openSet.length;
     for (let i = 0; i < len; i++) {
-        if ((vertex.fb < openSet[i].fb) || (vertex.fb == openSet[i].fb && vertex.f < openSet[i].f) ||
-            (vertex.fb == openSet[i].fb && vertex.f == openSet[i].f && vertex.k1 < openSet[i].k1)) {
-            openSet.splice(i, 0, vertex)
-            vertex.openSet = true
-            vertex.closedSet = false
-            vertex.newSet = false
-            drawHex(vertex)
+        if ((n.fb < openSet[i].fb) || (n.fb == openSet[i].fb && n.f < openSet[i].f) ||
+            (n.fb == openSet[i].fb && n.f == openSet[i].f && n.k1 < openSet[i].k1)) {
+            openSet.splice(i, 0, n)
+            n.openSet = true
+            n.closedSet = false
+            n.newSet = false
+            drawHex(n)
             return
         }
     }
-    //if length == 0 or the vertex is not better than any of the previous vertices
-    openSet.push(vertex)
-    vertex.tag = 'OPEN'
-    vertex.openSet = true
-    vertex.closedSet = false
-    vertex.newSet = false
-    drawHex(vertex)
+    //if length == 0 or the n is not better than any of the previous vertices
+    openSet.push(n)
+    n.tag = 'OPEN'
+    n.openSet = true
+    n.closedSet = false
+    n.newSet = false
+    drawHex(n)
 }
 
 function print_grid(name) {
@@ -746,11 +745,11 @@ function print_grid(name) {
     });
 }
 
-function log(name, vertex) {
-    if (vertex.b != null)
-        console.log('...' + name, "(" + vertex.x + ',' + vertex.y + ")", 'g:', vertex.g, 'rhs:', vertex.rhs)
+function log(name, n) {
+    if (n.b != null)
+        console.log('...' + name, "(" + n.x + ',' + n.y + ")", 'g:', n.g, 'rhs:', n.rhs)
     else
-        console.log('...' + name, "(" + vertex.x + ',' + vertex.y + ")", 'g:', vertex.g, 'rhs:', vertex.rhs)
+        console.log('...' + name, "(" + n.x + ',' + n.y + ")", 'g:', n.g, 'rhs:', n.rhs)
 }
 
 function log_openSet(set) {
@@ -789,49 +788,49 @@ var backtrack_path = function () {
 
 
 //lpa*
-function calculateKey(vertex) {
-    vertex.k2 = Math.min(vertex.g, vertex.rhs)
-    vertex.k1 = vertex.k2 + vertex.h
+function calculateKey(n) {
+    n.k2 = Math.min(n.g, n.rhs)
+    n.k1 = n.k2 + n.h
 }
 
 //lpa*
-function updateVertex(vertex) {
-    if (vertex != hex_start && vertex != backtrack_goal) {
-        var neighbours = filter_neighbours(vertex)
+function updateVertex(n) {
+    if (n != hex_start && n != backtrack_goal) {
+        var neighbours = filter_neighbours(n)
         var min_rhs = Infinity
         var temp_rhs = Infinity
         for (var i = 0; i < neighbours.length; i++) {
-            // distance to neighbour + cost to move to current vertex
-            temp_rhs = neighbours[i].g + vertex.slowdown + 1
+            // distance to neighbour + cost to move to current n
+            temp_rhs = neighbours[i].g + n.cost + 1
             if (temp_rhs < min_rhs) {
                 min_rhs = temp_rhs
             }
         }
-        vertex.rhs = min_rhs
+        n.rhs = min_rhs
     }
     //remove from priority queue
-    removeFromQueue(openSet, vertex)
-    if (vertex.g != vertex.rhs) {
-        calculateKey(vertex)
+    removeFromQueue(openSet, n)
+    if (n.g != n.rhs) {
+        calculateKey(n)
         //add to priprity queue
-        addVertexToQueue(openSet, vertex)
+        addNodeToQueue(openSet, n)
     } else {
-        vertex.closedSet = true
+        n.closedSet = true
     }
-    drawHex(vertex)
+    drawHex(n)
 }
 
-function filter_neighbours(vertex) {
-    var neighbours = grid.neighborsOf(vertex)
+function filter_neighbours(n) {
+    var neighbours = grid.neighborsOf(n)
     //Only empty hexes (no walls), no undefined hexes (out of bounds)
     neighbours = neighbours.filter(function (h) {
         if (typeof h == 'undefined') {
             return false
-        } else if (h.closedSet && (algorithm == 'a*' || algorithm == 'dijkstra')) {
+        } else if (h.closedSet && (algorithm == 'A*' || algorithm == 'Dijkstra')) {
             return false
         } else if (h.obstacle == 'wall') {
             return false
-        } else if (h.obstacle == 'knownHostile' && algorithm != 'd*') {
+        } else if (h.obstacle == 'knownHostile' && algorithm != 'Focused D*') {
             return false
         } else {
             return true
@@ -844,24 +843,24 @@ var count = 0;
 //lpa*
 var computeShortestPath = function () {
     if (checkLoopConstraints()) {
-        var vertex = openSet.shift() // Get index 0 from the priority queue
-        vertex.openSet = false
-        if (vertex.g > vertex.rhs) {
-            vertex.g = vertex.rhs
+        var n = openSet.shift() // Get index 0 from the priority queue
+        n.openSet = false
+        if (n.g > n.rhs) {
+            n.g = n.rhs
             //update all predecessors
-            var neighbours = filter_neighbours(vertex)
+            var neighbours = filter_neighbours(n)
             for (var i = 0; i < neighbours.length; i++) {
                 updateVertex(neighbours[i])
             }
         } else {
-            vertex.g = Infinity
+            n.g = Infinity
             //update all predecessors
-            var neighbours = filter_neighbours(vertex)
+            var neighbours = filter_neighbours(n)
             for (var i = 0; i < neighbours.length; i++) {
                 updateVertex(neighbours[i])
             }
             //update self
-            updateVertex(vertex)
+            updateVertex(n)
         }
         if (animation) {
             window.requestAnimationFrame(computeShortestPath)
@@ -891,30 +890,30 @@ function checkLoopConstraints() {
 }
 
 //lpa* - add to priority queue
-function addVertexToQueue(queue, vertex) {
+function addNodeToQueue(queue, n) {
     var len = queue.length;
     for (let i = 0; i < len; i++) {
-        if ((vertex.k1 < queue[i].k1) || ((vertex.k1 == queue[i].k1) && (vertex.k2 < queue[i].k2))) {
-            queue.splice(i, 0, vertex)
-            vertex.openSet = true
-            vertex.closedSet = false
+        if ((n.k1 < queue[i].k1) || ((n.k1 == queue[i].k1) && (n.k2 < queue[i].k2))) {
+            queue.splice(i, 0, n)
+            n.openSet = true
+            n.closedSet = false
             return
         }
     }
-    //if length == 0 or the vertex is not better than any of the previous vertices
-    queue.push(vertex)
-    vertex.openSet = true
-    vertex.closedSet = false
+    //if length == 0 or the n is not better than any of the previous vertices
+    queue.push(n)
+    n.openSet = true
+    n.closedSet = false
 }
 
 //lpa* - remove from priority queue
-function removeFromQueue(queue, vertex) {
+function removeFromQueue(queue, n) {
     for (var i = queue.length - 1; i >= 0; i--) {
-        if (queue[i].x == vertex.x) {
-            if (queue[i].y == vertex.y) {
+        if (queue[i].x == n.x) {
+            if (queue[i].y == n.y) {
                 queue.splice(i, 1);
-                vertex.openSet = false
-                vertex.closedSet = true
+                n.openSet = false
+                n.closedSet = true
             }
         }
     }
@@ -925,6 +924,8 @@ var follow_path = function () {
     hex = path.pop()
     //Restart search if enemy is found
     if (hex.obstacle == 'unknownHostile') {
+        if (time0 == time1)
+            time1 = new Date().getTime()
         hex.obstacle = 'knownHostile'
         hex.closedSet = false
         hex.openSet = false
@@ -935,7 +936,7 @@ var follow_path = function () {
         walk.pop()
         pathlength--
         drawHex(hex)
-        if (algorithm == 'a*' || algorithm == 'dijkstra') {
+        if (algorithm == 'A*' || algorithm == 'Dijkstra') {
             for (var i = 0; i < openSet.length; i++) {
                 resetHex(openSet[i])
                 drawHex(openSet[i])
@@ -954,47 +955,7 @@ var follow_path = function () {
             } else {
                 a_star()
             }
-        } else if (algorithm == 'lpa*') {
-            //edge cost changed = true
-            path = []
-            hex.path = false
-            hex.rhs = Infinity
-            hex.g = Infinity
-            var neighbours = filter_neighbours(hex)
-            for (var i = 0; i < neighbours.length; i++) {
-                updateVertex(neighbours[i])
-            }
-            var previous_hex = hex.parent
-            previous_hex.rhs = 0
-            previous_hex.g = 0
-            neighbours = filter_neighbours(previous_hex)
-            for (var i = 0; i < neighbours.length; i++) {
-                updateVertex(neighbours[i])
-            }
-            if (animation) {
-                window.requestAnimationFrame(computeShortestPath)
-            } else {
-                computeShortestPath()
-            }
-        } else if (algorithm == 'd*') {
-            console.log('before')
-            log_openSet(openSet)
-            print_grid('before')
-            path = []
-            modify_cost(hex, 10000)
-            var neighbours = filter_neighbours(hex)
-            for (var i = 0; i < neighbours.length; i++) {
-                neighbours[i].tag = "OPEN"
-                insert(neighbours[i], neighbours[i].h)
-            }
-            console.log('after insert')
-            log_openSet(openSet)
-            print_grid('after')
-            if (animation) {
-                window.requestAnimationFrame(process_state)
-            } else {
-                process_state()
-            }
+
         }
     } else {
         backtrack_goal = hex
@@ -1017,10 +978,7 @@ var follow_path = function () {
             }
         } else {
             //Done
-            var time1 = new Date().getTime()
-            console.log("Time taken: ", time1 - time0)
-            console.log("Path length: ", pathlength)
-            console.log(walk)
+            displayResults()
         }
     }
 };
@@ -1054,6 +1012,9 @@ var a_star = function () {
         return
     }
 
+
+    nodeExpansionCount++
+
     closedSet.push(current)
     current.closedSet = true
     current.openSet = false
@@ -1069,13 +1030,13 @@ var a_star = function () {
     var neighbours = filter_neighbours(current)
 
     for (var i = 0; i < neighbours.length; i++) {
-        var g = current.g + 1 + neighbours[i].slowdown
+        var g = current.g + 1 + neighbours[i].cost
         //Better g value?
         if (openSet.includes(neighbours[i])) {
             if (g <= neighbours[i].g) {
                 neighbours[i].g = g
                 neighbours[i].parent = current
-                if (algorithm == 'a*') {
+                if (algorithm == 'A*') {
                     neighbours[i].h = heuristic(neighbours[i], hex_end)
                 } else { // dijkstra
                     neighbours[i].h = 0
@@ -1104,7 +1065,8 @@ var a_star = function () {
             a_star()
         }
     } else {
-        alert('No path found')
+        //no path found
+        displayNoResults()
     }
 
 };
@@ -1122,7 +1084,7 @@ function resetHex(hex, obstacles = false, walk = false) {
     hex.parent = undefined
     if (obstacles) {
         hex.obstacle = 'empty'
-        slowdown = 0
+        cost = 0
     }
     if (walk) {
         hex.walk = false
@@ -1133,15 +1095,13 @@ function resetHex(hex, obstacles = false, walk = false) {
 function resetStats(hex) {
     hex.f = Infinity
     hex.rhs = Infinity
-    if (algorithm == "a*") {
+    if (algorithm == "A*") {
         hex.g = 0
         hex.h = heuristic(hex, hex_end)
-    } else if (algorithm == "lpa*") {
-        hex.g = Infinity
-        hex.h = heuristic(hex, hex_end)
-    } else if (algorithm == 'dijkstra') {
+    } else if (algorithm == 'Dijkstra') {
         hex.h = 0
-    } else if (algorithm == 'd*' || algorithm == 'd*lite') {
+        hex.g = 0
+    } else if (algorithm == 'Focused D*' || algorithm == 'D* Lite') {
         hex.g = Infinity
     }
 }
@@ -1191,11 +1151,17 @@ function clickAnimation(clicked_id) {
     localStorage.setItem("animation", animation)
 };
 
+window.onclick = function (event) {
+    if (event.target == modal) {
+        modal.style.display = "none";
+    }
+}
+
 
 //Get the svg grid element to add event listeners to it
 var svg = document.querySelectorAll("svg")[0];
 
-
+var startOrEndChanged = false
 
 svg.addEventListener('mousedown', ({ offsetX, offsetY }) => {
     if (!searched) {
@@ -1205,12 +1171,15 @@ svg.addEventListener('mousedown', ({ offsetX, offsetY }) => {
             mousedown = true
             if (mousedown_hex.start) {
                 type = 'start'
+                startOrEndChanged = true
             } else if (mousedown_hex.end) {
                 type = 'end'
+                startOrEndChanged = true
             } else {
+                startOrEndChanged = false
                 type = currentObstacle
                 mousedown_hex.obstacle = currentObstacle
-                mousedown_hex.slowdown = currentSlowdown
+                mousedown_hex.cost = currentSlowdown
                 drawHex(mousedown_hex)
             }
         }
@@ -1221,6 +1190,12 @@ svg.addEventListener('mouseup', ({ offsetX, offsetY }) => {
     mousedown = false
     type = 'none'
     // mousedown_hex = null
+    if (startOrEndChanged && algorithm == "A*") {
+        grid.forEach(hex => {
+            hex.h = heuristic(hex, hex_end)
+        })
+
+    }
 })
 
 svg.addEventListener('mouseover', ({ offsetX, offsetY }) => {
@@ -1253,7 +1228,7 @@ svg.addEventListener('mouseover', ({ offsetX, offsetY }) => {
                 hex_end = hex
             } else if (type != 'none') {
                 hex.obstacle = currentObstacle
-                hex.slowdown = currentSlowdown
+                hex.cost = currentSlowdown
                 drawHex(hex)
             }
         }
@@ -1332,6 +1307,23 @@ function algorithmChange(object) {
     })
 }
 
+function sizeChange(object) {
+    sizeIndex = object.value
+}
+
+
+
+function sizeChangeClicked() {
+    if (sizeIndex != -1) {
+        localStorage.setItem("load", "false")
+        localStorage.setItem("size", sizes[sizeIndex])
+        location.reload()
+    } else {
+        alert('Please select a size from the drop down list')
+    }
+
+}
+
 function testChange(object) {
     testIndex = object.value
 }
@@ -1352,9 +1344,49 @@ async function readListOfTests() {
         const response = await fetch(testUrl);
         const data = await response.text();
         testList = data.match(/[^\r\n]+/g);
-        console.log('readListOfTests', testList);
     } catch (error) {
         console.error(error);
     }
 }
+
+function displayResults() {
+    //Done
+    var time2 = new Date().getTime()
+    var overallTime = time2 - time0
+    var initialSearchingTime = time2 - time0
+    if (time1 != time0)
+        initialSearchingTime = time1 - time0
+    var updatingTime = overallTime - initialSearchingTime
+    console.log("Search Results")
+    console.log("Algorithm:", algorithm)
+    console.log("Overall time taken:", overallTime)
+    console.log("Initial search time:", initialSearchingTime)
+    console.log("Updating time:", updatingTime)
+    console.log("Number of nodes expanded:", nodeExpansionCount)
+    var cost = 0
+    for (var i = 1; i < walk.length; i++) {
+        cost += 1 + walk[i].cost
+    }
+    console.log("Path cost:", cost)
+    document.getElementById("tblAlgorithm").innerHTML = algorithm
+    document.getElementById("tblOverallTime").innerHTML = overallTime + "ms"
+    document.getElementById("tblInitialTime").innerHTML = initialSearchingTime + "ms"
+    document.getElementById("tblUpdatingTime").innerHTML = updatingTime + "ms"
+    document.getElementById("tblNodesExpanded").innerHTML = nodeExpansionCount
+    document.getElementById("tblPathCost").innerHTML = cost
+    document.getElementById("resultsTable").style.display = "block"
+    document.getElementById("noPath").style.display = "none"
+    modal.style.display = "block";
+}
+
+function displayNoResults() {
+    document.getElementById("resultsTable").style.display = "none"
+    document.getElementById("noPath").style.display = "block"
+    modal.style.display = "block";
+}
+
+function modalCloseClicked() {
+    modal.style.display = "none";
+}
+
 
