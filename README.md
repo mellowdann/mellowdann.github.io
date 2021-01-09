@@ -7,7 +7,7 @@ Installation:\
 	\
 To run:\
 	Open "index.html" in any modern web browser.\
-	Or go to https://mellowdann.github.io/\
+	Or go to https://mellowdann.github.io/
 \
 There are 6 node options:\
 	1. Clear - an empty node which can be travelled to for a cost of 1.\
