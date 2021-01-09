@@ -55,41 +55,33 @@ const Hex = Honeycomb.extendHex({
 });
 
 const Grid = Honeycomb.defineGrid(Hex)
-// get the corners of a hex (they're the same for all hexes created with the same Hex factory)
 corners = Hex().corners()
+
+//Define the colours Used
 const hexStart = getColourHex('yellow')
 const hexEnd = getColourHex('green')
 const hexWalk = getColourHex('yellow')
-
 const hexWall = getColourHex('black')
-
 const hexEmpty = getColourHex('#ffffff')
 const hexEmptyOpen = getColourHex('#808080')
 const hexEmptyClosed = getColourHex('#bfbfbf')
 const hexEmptyPath = getColourHex('#bfbfbf', 'red', 1)
-
 const hexSand = getColourHex('#ff8c1a')
 const hexSandOpen = getColourHex('#804000')
 const hexSandClosed = getColourHex('#ffbf80')
 const hexSandPath = getColourHex('#ffbf80', 'red', 1)
-
 const hexWater = getColourHex(' #0066ff')
 const hexWaterOpen = getColourHex('#003380')
 const hexWaterClosed = getColourHex('#80b3ff')
 const hexWaterPath = getColourHex('#80b3ff', 'red', 1)
-
 const hexEnemy = getColourHex('#ff0000')
-
 const hexKnownHostile = getColourHex('#ff0000')
 const hexUnknownHostile = getColourHex('#ff8080')
-
 const hexKnownFriendly = getColourHex('#00ff00')
 const hexUnknownFriendly = getColourHex('#80ff80')
-
 const hexEnemyClosed = getColourHex('#ff8080')
 const hexEnemyPath = getColourHex('#ff8080', 'red', 1)
 
-//Width 2 causes problem when clearing the search
 
 function getColourHex(fill, border = '#999', width = 1) {
     return draw.symbol()
@@ -97,7 +89,6 @@ function getColourHex(fill, border = '#999', width = 1) {
         .fill(fill)
         .stroke({ width: width, color: border })
 }
-
 
 
 // grid = gridWidth x gridWidth
@@ -110,6 +101,7 @@ grid.forEach(hex => {
     draw.use(hexEmpty).translate(x, y)
 })
 
+//Attempt to populate the test drop down list
 readListOfTests()
 
 //Start and End Hexes
@@ -127,21 +119,46 @@ var mousedown = false
 var type = 'none'
 var level = 0
 
-//astar
-var openSet = []
-var closedSet = []
-var path = []
-var walk = []
-//unknown and known hostile and friendly
+
+
+//keep track of unknown and known hostile and friendly
+//so they can be reset after searching
 var knownHostile = []
 var knownHostileAdded = 0
 var knownFriendly = []
 var knownFriendlyAdded = 0
 var originallyUnknown = []
 
+//Performance metric variables
 var time0 = 0
 var pathlength = 0
+var nodeExpansionCount = 0
 
+//algorithm variables
+var k_m = 0
+var last_S = S
+var openSet = []
+var closedSet = []
+var path = []
+var walk = []
+var r_current = hex_start // military unit position
+var d_current = 0
+var movecount = 0
+var S;
+var R;
+var G;
+var update_list = []
+var countRepeats = 0
+var count = 0;
+var moving = false
+var startOrEndChanged = false
+
+//Get the svg grid element to add event listeners to it
+var svg = document.querySelectorAll("svg")[0];
+
+
+
+//Load any user preferences and previously made grids
 if (localStorage.getItem("load") == "true") {
     loadState(localStorage.getItem("grid"))
 }
@@ -179,6 +196,7 @@ function loadOptions(alg, obs, ani) {
 }
 
 
+//Save the current grid so it can be reloaded after refreshing
 function saveState() {
     var hexList = ""
     var obstacle = ""
@@ -214,6 +232,7 @@ function saveState() {
     console.log(hexList)
 }
 
+//Load the saved grid
 function loadState(hexList) {
     var hexArray = hexList.split("").map(x => +x)
     var num_hexes = hexList.length
@@ -255,70 +274,74 @@ function loadState(hexList) {
 }
 
 document.getElementById("btnSearch").addEventListener("click", function () {
-    if (!searched && algorithm != "select") {
-        saveState()
-        searched = true
-        time0 = new Date().getTime()
-        time1 = time0
-        pathlength = 0
-        hex_end.obstacle = 'empty'
-        hex_start.obstacle = 'empty'
-        if (algorithm == 'A*') {
-            //Astar
-            openSet.push(hex_start)
-            hex_start.openSet = true
-            if (animation) {
-                window.requestAnimationFrame(a_star)
-            } else {
-                a_star()
+    if (!searched) {
+        if (algorithm != 'select') {
+            saveState()
+            searched = true
+            time0 = new Date().getTime()
+            time1 = time0
+            pathlength = 0
+            hex_end.obstacle = 'empty'
+            hex_start.obstacle = 'empty'
+            if (algorithm == 'A*') {
+                //Astar
+                openSet.push(hex_start)
+                hex_start.openSet = true
+                if (animation) {
+                    window.requestAnimationFrame(a_star)
+                } else {
+                    a_star()
+                }
+            } else if (algorithm == 'Dijkstra') {
+                //Dijkstra
+                openSet.push(hex_start)
+                hex_start.openSet = true
+                if (animation) {
+                    window.requestAnimationFrame(a_star) // the heuristic is removed
+                } else {
+                    a_star()
+                }
+            } else if (algorithm == 'Focused D*') {
+                S = hex_start
+                G = hex_end
+                //all vertices start with tag = 'NEW'
+                d_current = 0
+                r_current = hex_start
+                d_star_insert(G, 0)
+                //process state
+                if (animation) {
+                    window.requestAnimationFrame(d_star_process_node)
+                } else {
+                    d_star_process_node()
+                }
+            } else if (algorithm == 'D* Lite') {
+                S = hex_start
+                G = hex_end
+                k_m = 0
+                last_S = S
+                //all vertices start with rhs = g = infinity
+                G.rhs = 0
+                d_lite_calculateKey(S)
+                d_lite_calculateKey(G)
+                addNodeToQueue(openSet, G)
+                //End of initialize
+                path.push(S)
+                walk.push(S)
+                if (animation) {
+                    window.requestAnimationFrame(d_lite_computeShortestPath)
+                } else {
+                    d_lite_computeShortestPath()
+                }
             }
-        } else if (algorithm == 'Dijkstra') {
-            //Dijkstra
-            openSet.push(hex_start)
-            hex_start.openSet = true
-            if (animation) {
-                window.requestAnimationFrame(a_star) // the heuristic is removed
-            } else {
-                a_star()
-            }
-        } else if (algorithm == 'Focused D*') {
-            S = hex_start
-            G = hex_end
-            //all vertices start with tag = 'NEW'
-            d_current = 0
-            r_current = hex_start
-            d_star_insert(G, 0)
-            //process state
-            if (animation) {
-                window.requestAnimationFrame(d_star_process_node)
-            } else {
-                d_star_process_node()
-            }
-        } else if (algorithm == 'D* Lite') {
-            S = hex_start
-            G = hex_end
-            k_m = 0
-            last_S = S
-            //all vertices start with rhs = g = infinity
-            G.rhs = 0
-            d_lite_calculateKey(S)
-            d_lite_calculateKey(G)
-            addNodeToQueue(openSet, G)
-            //End of initialize
-            path.push(S)
-            walk.push(S)
-            if (animation) {
-                window.requestAnimationFrame(d_lite_computeShortestPath)
-            } else {
-                d_lite_computeShortestPath()
-            }
+        } else {
+            alert("Please select an algorithm from the drop down.")
         }
+    } else {
+        alert("Please clear the previous search before starting a new search.")
     }
 });
 
-var k_m = 0
-var last_S = S
-var nodeExpansionCount = 0
+
 
 function d_lite_calculateKey(n) {
     n.k2 = Math.min(n.g, n.rhs)
@@ -470,13 +493,7 @@ function d_lite_updateNode(n) {
 }
 
 
-var r_current = hex_start // robot position
-var d_current = 0
 
-var movecount = 0
-var S;
-var R;
-var G;
 
 var d_star_move = function () {
     if (R != G) {
@@ -533,11 +550,6 @@ function d_star_modify_cost(n, newCost) {
     if (n.tag == 'CLOSED')
         d_star_insert(n, n.h)
 }
-
-var update_list = []
-var countRepeats = 0
-var count = 0;
-var moving = false
 
 var d_star_process_node = function () {
     var n = d_star_min_node()
@@ -839,57 +851,7 @@ function filter_neighbours(n) {
     return neighbours
 }
 
-var count = 0;
-//lpa*
-var computeShortestPath = function () {
-    if (checkLoopConstraints()) {
-        var n = openSet.shift() // Get index 0 from the priority queue
-        n.openSet = false
-        if (n.g > n.rhs) {
-            n.g = n.rhs
-            //update all predecessors
-            var neighbours = filter_neighbours(n)
-            for (var i = 0; i < neighbours.length; i++) {
-                updateVertex(neighbours[i])
-            }
-        } else {
-            n.g = Infinity
-            //update all predecessors
-            var neighbours = filter_neighbours(n)
-            for (var i = 0; i < neighbours.length; i++) {
-                updateVertex(neighbours[i])
-            }
-            //update self
-            updateVertex(n)
-        }
-        if (animation) {
-            window.requestAnimationFrame(computeShortestPath)
-        } else {
-            computeShortestPath()
-        }
-    }
-    else {
-        if (animation) {
-            window.requestAnimationFrame(backtrack_path)
-        } else {
-            backtrack_path()
-        }
-    }
-}
 
-//lpa* - used in compute Shortest Path
-function checkLoopConstraints() {
-    calculateKey(hex_end)
-    if (openSet.length > 0) {
-        if (((openSet[0].k1 < hex_end.k1) || ((openSet[0].k1 == hex_end.k1) && (openSet[0].k2 < hex_end.k2)))
-            || (hex_end.g != hex_end.rhs)) {
-            return true
-        }
-    }
-    return false
-}
-
-//lpa* - add to priority queue
 function addNodeToQueue(queue, n) {
     var len = queue.length;
     for (let i = 0; i < len; i++) {
@@ -906,7 +868,7 @@ function addNodeToQueue(queue, n) {
     n.closedSet = false
 }
 
-//lpa* - remove from priority queue
+
 function removeFromQueue(queue, n) {
     for (var i = queue.length - 1; i >= 0; i--) {
         if (queue[i].x == n.x) {
@@ -1158,10 +1120,7 @@ window.onclick = function (event) {
 }
 
 
-//Get the svg grid element to add event listeners to it
-var svg = document.querySelectorAll("svg")[0];
 
-var startOrEndChanged = false
 
 svg.addEventListener('mousedown', ({ offsetX, offsetY }) => {
     if (!searched) {
@@ -1388,5 +1347,6 @@ function displayNoResults() {
 function modalCloseClicked() {
     modal.style.display = "none";
 }
+
 
 
