@@ -48,4 +48,4 @@ Turn animation on/off:\
 	\
 Note:\
 	User preferences are saved locally to allow the page to be refreshed without losing the desired map configuration.\
-	On the unlikely event that errors occur with the loading procedure, type "localStorage.clear();" in the console, and refresh the page.\
+	On the unlikely event that errors occur with the loading procedure, type "localStorage.clear();" in the console, and refresh the page.
