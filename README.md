@@ -1,3 +1,5 @@
+Research paper available at: https://github.com/mellowdann/mellowdann.github.io/blob/master/Research%20Paper%20MUPFP.pdf
+
 How to use: Military Unit Path Finding Simulation Tool\
 \
 Designed and implemented by Daniel Mundell, 220108104@stu.ukzn.ac.za\
